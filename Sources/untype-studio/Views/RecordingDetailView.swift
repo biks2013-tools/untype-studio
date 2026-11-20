@@ -1,0 +1,492 @@
+// untype-studio/Views/RecordingDetailView.swift — plan-024 T9.
+//
+// Header, player and waveform on top; transcript on the left and the
+// tools (Ask, Minutes, Speakers, Cut, Re-transcribe, Info) on the right.
+
+import NtakkerSettingsUI
+import UntypeStudioKit
+import SwiftUI
+
+struct RecordingDetailView: View {
+    @Bindable var workspace: RecordingWorkspace
+    @AppStorage("studio.inspectorWidth") private var inspectorWidth = Self.inspectorStandardWidth
+    @State private var dragStartWidth: Double?
+
+    static let inspectorStandardWidth: Double = 390
+    static let inspectorMinWidth: Double = 300
+    static let transcriptMinWidth: Double = 380
+
+    private func clampedInspectorWidth(_ proposed: Double, available: Double) -> Double {
+        let maxWidth = max(Self.inspectorMinWidth, available - Self.transcriptMinWidth - 1)
+        return min(max(proposed, Self.inspectorMinWidth), maxWidth)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            RecordingHeader(workspace: workspace)
+            if let error = workspace.lastError ?? workspace.metadataError {
+                ErrorBanner(message: error) {
+                    if workspace.lastError != nil { workspace.lastError = nil }
+                }
+            }
+            PlayerBar(workspace: workspace)
+            WaveformStrip(workspace: workspace)
+                .frame(height: workspace.canSilence ? 112 : 72)
+                .padding(.horizontal, 12)
+                .padding(.bottom, 8)
+            Divider()
+            // A plain HStack rather than HSplitView: the split view sizes
+            // panes by their unwrapped text width and pushed the window
+            // content past its edges. The inspector is resized by dragging
+            // the divider (double-click restores the standard width); its
+            // width is clamped so the transcript keeps its minimum.
+            GeometryReader { geo in
+                let width = clampedInspectorWidth(inspectorWidth, available: geo.size.width)
+                HStack(spacing: 0) {
+                    TranscriptPane(workspace: workspace)
+                        .frame(minWidth: Self.transcriptMinWidth, maxWidth: .infinity)
+                    PaneResizeHandle(
+                        onDrag: { translation in
+                            let start = dragStartWidth ?? width
+                            if dragStartWidth == nil { dragStartWidth = start }
+                            inspectorWidth = clampedInspectorWidth(start - translation, available: geo.size.width)
+                        },
+                        onEnd: { dragStartWidth = nil },
+                        onReset: { inspectorWidth = Self.inspectorStandardWidth }
+                    )
+                    InspectorPane(workspace: workspace)
+                        .frame(width: width)
+                }
+            }
+        }
+        // The echo settings live in the shared file: follow changes made in
+        // either app's Settings window.
+        .onChange(of: SharedSettingsStore.shared.values) { _, values in
+            workspace.player.echoSettings = EchoFilterSettings.from(values)
+        }
+        .environment(\.openURL, OpenURLAction { url in
+            if let t = TimecodeLinks.seconds(from: url) {
+                workspace.player.seek(to: t)
+                return .handled
+            }
+            return .systemAction
+        })
+    }
+}
+
+struct RecordingHeader: View {
+    let workspace: RecordingWorkspace
+    @Environment(LibraryStore.self) private var library
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(workspace.recording.displayName).font(.title2.bold()).truncationTooltip(workspace.recording.displayName)
+                if let meeting = workspace.metadata.meeting {
+                    Label(meeting.subject, systemImage: "calendar")
+                        .font(.callout).truncationTooltip(meeting.subject, otherwise: "Linked meeting (Info ▸ Meeting)")
+                }
+                HStack(spacing: 10) {
+                    Text(workspace.audioStart, format: .dateTime.weekday(.wide).day().month(.wide).year().hour().minute())
+                    if workspace.duration > 0 {
+                        Text(StudioAsk.timecode(workspace.duration, longForm: true))
+                    }
+                    Text(workspace.recording.tracks.count > 1 ? "mic + system" : workspace.recording.tracks.first?.url.pathExtension.uppercased() ?? "")
+                    Text("\(workspace.entries.count) lines")
+                }
+                .font(.callout)
+                .foregroundStyle(.secondary)
+            }
+            Spacer()
+            let parts = library.sessionParts(of: workspace.recording)
+            if !parts.isEmpty {
+                Button {
+                    library.selection = Set(parts.map(\.id))
+                } label: {
+                    Label("Join the \(parts.count) Parts…", systemImage: "rectangle.stack.badge.plus")
+                }
+                .help("This session was recorded in \(parts.count) parts: select them all to join them into one recording")
+            }
+            TranscriptPicker(workspace: workspace)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 12)
+        .padding(.bottom, 6)
+    }
+}
+
+/// Which transcripts are shown (several can be on at once, e.g. mic + system).
+struct TranscriptPicker: View {
+    @Bindable var workspace: RecordingWorkspace
+
+    var body: some View {
+        if workspace.recording.transcripts.isEmpty {
+            Text("No transcript").foregroundStyle(.secondary)
+        } else {
+            Menu {
+                ForEach(workspace.recording.transcripts) { t in
+                    Toggle(isOn: Binding(
+                        get: { workspace.visibleTranscripts.contains(t.url) },
+                        set: { on in
+                            if on { workspace.visibleTranscripts.insert(t.url) } else { workspace.visibleTranscripts.remove(t.url) }
+                        }
+                    )) {
+                        Text(t.displayName + (workspace.isExact(t) ? " · exact timing" : ""))
+                    }
+                }
+            } label: {
+                Label(pickerTitle, systemImage: "text.quote")
+            }
+            .fixedSize()
+        }
+    }
+
+    private var pickerTitle: String {
+        let shown = workspace.recording.transcripts.filter { workspace.visibleTranscripts.contains($0.url) }
+        switch shown.count {
+        case 0: return "No transcript shown"
+        case 1: return shown[0].displayName
+        default: return "\(shown.count) transcripts"
+        }
+    }
+}
+
+struct ErrorBanner: View {
+    let message: String
+    let dismiss: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top) {
+            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+            Text(message).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+            Spacer()
+            Button(action: dismiss) { Image(systemName: "xmark") }.buttonStyle(.borderless)
+        }
+        .font(.callout)
+        .padding(10)
+        .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+        .padding(.horizontal, 12)
+        .padding(.bottom, 6)
+    }
+}
+
+struct PlayerBar: View {
+    @Bindable var workspace: RecordingWorkspace
+    @AppStorage("studio.echoFilter") private var echoFilterPref = false
+    @State private var showEchoSettings = false
+
+    var body: some View {
+        let player = workspace.player
+        HStack(spacing: 12) {
+            Button { player.skip(by: -10) } label: { Image(systemName: "gobackward.10") }
+                .help("Back 10 s (←: 5 s)")
+            Button { player.togglePlay() } label: {
+                Image(systemName: player.isPlaying ? "pause.fill" : "play.fill").frame(width: 18)
+            }
+            .help("Play / pause (space)")
+            .disabled(player.duration == 0)
+            Button { player.skip(by: 10) } label: { Image(systemName: "goforward.10") }
+                .help("Forward 10 s (→: 5 s)")
+            Text("\(StudioAsk.timecode(player.currentTime, longForm: true)) / \(StudioAsk.timecode(player.duration, longForm: true))")
+                .font(.callout.monospacedDigit())
+                .foregroundStyle(.secondary)
+            Spacer()
+            if let error = player.loadError {
+                Text("Audio: \(error)").foregroundStyle(.red).font(.caption).truncationTooltip("Audio: \(error)")
+            }
+            if player.canFilterEcho {
+                Button {
+                    player.echoFilter.toggle()
+                    echoFilterPref = player.echoFilter
+                } label: {
+                    Label(player.echoFilter ? "Echo removed" : "Remove echo",
+                          systemImage: player.echoFilter ? "ear.fill" : "ear")
+                        .foregroundStyle(player.echoFilter ? Color.accentColor : Color.secondary)
+                }
+                .help(player.echoFilter
+                      ? "Echo filter on: the system audio that leaked into the microphone is being subtracted. Click to hear the original."
+                      : "Echo filter: subtract the system audio that leaked into the microphone (speakers picked up by the mic), while you listen. The files are not changed.")
+                .accessibilityValue(player.echoFilter ? "on" : "off")
+                Button { showEchoSettings.toggle() } label: { Image(systemName: "slider.horizontal.3") }
+                    .help("Echo filter settings: strength, extra suppression, adaptation speed, echo delay")
+                    .popover(isPresented: $showEchoSettings, arrowEdge: .bottom) {
+                        EchoSettingsView(workspace: workspace)
+                    }
+            }
+            Toggle("Skip cuts", isOn: $workspace.previewCuts)
+                .toggleStyle(.checkbox)
+                .disabled(workspace.cuts.isEmpty)
+                .help("Preview the cut: playback jumps over the ranges marked for removal")
+            Picker("Speed", selection: Binding(get: { player.rate }, set: { player.rate = $0 })) {
+                ForEach(PlayerController.availableRates, id: \.self) { r in
+                    Text(r == 1 ? "1×" : String(format: "%g×", r)).tag(r)
+                }
+            }
+            .labelsHidden()
+            .frame(width: 70)
+        }
+        .buttonStyle(.borderless)
+        .font(.title3)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 6)
+        .onChange(of: player.canFilterEcho, initial: true) { _, can in
+            if can { player.echoFilter = echoFilterPref }
+        }
+    }
+}
+
+/// Waveform with playhead, cuts and the selection. Click to seek; drag
+/// to select a range for cutting. A split recording shows its two
+/// channels as separate lanes (2026-10-21): each can be muted while
+/// listening, and a range dragged on a lane can be silenced on that
+/// channel only (Cut ▸ Silence).
+struct WaveformStrip: View {
+    @Bindable var workspace: RecordingWorkspace
+
+    var body: some View {
+        if workspace.canSilence, !workspace.channelWaveforms.isEmpty {
+            VStack(spacing: 4) {
+                ChannelLane(workspace: workspace, role: .system)
+                ChannelLane(workspace: workspace, role: .microphone)
+            }
+        } else {
+            WaveformLane(workspace: workspace, peaks: workspace.waveform.peaks, role: nil)
+        }
+    }
+}
+
+/// One channel of a split recording: its name, a listen / mute button
+/// and its waveform.
+private struct ChannelLane: View {
+    @Bindable var workspace: RecordingWorkspace
+    let role: AudioTrackRole
+
+    private var name: String { role == .microphone ? "Mic" : "System" }
+    private var muted: Bool { workspace.player.mutedRoles.contains(role) }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Button {
+                if muted { workspace.player.mutedRoles.remove(role) } else { workspace.player.mutedRoles.insert(role) }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: muted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                        .foregroundStyle(muted ? Color.orange : Color.secondary)
+                        .frame(width: 16)
+                    Text(name).font(.caption).foregroundStyle(muted ? .secondary : .primary)
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .frame(width: 70)
+            .help(muted
+                  ? "\(name) is muted while you listen. Click to hear it again. (The file is not changed.)"
+                  : "Click to mute \(name) while you listen, to hear the other channel alone. (The file is not changed.)")
+            .accessibilityLabel(muted ? "Unmute \(name)" : "Mute \(name)")
+            WaveformLane(workspace: workspace, peaks: workspace.channelWaveforms[role]?.peaks ?? [], role: role)
+                .opacity(muted ? 0.45 : 1)
+        }
+    }
+}
+
+/// A waveform with the playhead, cuts, the selection and — for a
+/// channel lane — the ranges silenced on that channel.
+private struct WaveformLane: View {
+    @Bindable var workspace: RecordingWorkspace
+    let peaks: [Float]
+    /// The channel this lane shows; `nil` for the whole recording.
+    let role: AudioTrackRole?
+    @State private var dragStart: Double?
+
+    var body: some View {
+        GeometryReader { geo in
+            let duration = workspace.duration
+            let w = geo.size.width, h = geo.size.height
+            ZStack(alignment: .topLeading) {
+                Canvas { ctx, size in
+                    guard !peaks.isEmpty else { return }
+                    let mid = size.height / 2
+                    let step = size.width / CGFloat(peaks.count)
+                    var path = Path()
+                    for (i, p) in peaks.enumerated() {
+                        let x = CGFloat(i) * step
+                        let amp = max(0.5, CGFloat(p) * (mid - 2))
+                        path.addRect(CGRect(x: x, y: mid - amp, width: max(1, step * 0.8), height: amp * 2))
+                    }
+                    ctx.fill(path, with: .color(.accentColor.opacity(0.55)))
+                }
+                if peaks.isEmpty {
+                    HStack { ProgressView().controlSize(.small); Text("Reading audio…").font(.caption).foregroundStyle(.secondary) }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+                if duration > 0 {
+                    if let role {
+                        ForEach(workspace.silence.ranges(for: role)) { r in
+                            Rectangle().fill(Color.gray.opacity(0.55))
+                                .overlay(Rectangle().fill(Color.primary.opacity(0.5)).frame(height: 1))
+                                .frame(width: max(1, r.duration / duration * w), height: h)
+                                .offset(x: r.start / duration * w)
+                                .allowsHitTesting(false)
+                        }
+                    }
+                    ForEach(workspace.cuts) { c in
+                        Rectangle().fill(.red.opacity(0.28))
+                            .frame(width: max(1, (c.end - c.start) / duration * w), height: h)
+                            .offset(x: c.start / duration * w)
+                            .allowsHitTesting(false)
+                    }
+                    if let s = workspace.selection, workspace.selectionRole == nil || workspace.selectionRole == role {
+                        Rectangle().fill(.blue.opacity(0.25))
+                            .overlay(Rectangle().stroke(.blue.opacity(0.6)))
+                            .frame(width: max(1, s.duration / duration * w), height: h)
+                            .offset(x: s.start / duration * w)
+                            .allowsHitTesting(false)
+                    }
+                    Rectangle().fill(.primary)
+                        .frame(width: 1.5, height: h)
+                        .offset(x: min(w - 1.5, workspace.player.currentTime / duration * w))
+                        .allowsHitTesting(false)
+                }
+            }
+            .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 6))
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { g in
+                        guard duration > 0 else { return }
+                        let t = max(0, min(duration, g.location.x / w * duration))
+                        if dragStart == nil { dragStart = max(0, min(duration, g.startLocation.x / w * duration)) }
+                        if abs(g.translation.width) > 3, let s = dragStart {
+                            workspace.selection = CutRange(start: s, end: t)
+                            workspace.selectionRole = role
+                        }
+                    }
+                    .onEnded { g in
+                        defer { dragStart = nil }
+                        guard duration > 0 else { return }
+                        if abs(g.translation.width) <= 3 {
+                            workspace.selection = nil
+                            workspace.selectionRole = nil
+                            workspace.player.seek(to: max(0, min(duration, g.location.x / w * duration)))
+                        }
+                    }
+            )
+            .help(role == nil
+                  ? "Click to jump there; drag to select a range to cut"
+                  : "Click to jump there; drag to select a range — then cut it, or silence it on this channel (Cut ▸ Silence)")
+        }
+    }
+}
+
+/// The echo filter's adjustable settings. Strength, suppression and
+/// adaptation are app-wide; the delay override belongs to the recording.
+/// They apply while listening and to "Export Copy" with echo removal.
+struct EchoSettingsView: View {
+    let workspace: RecordingWorkspace
+
+    var body: some View {
+        let player = workspace.player
+        let settings = Binding(
+            get: { player.echoSettings },
+            set: { new in
+                player.echoSettings = new
+                for (k, v) in new.fileValues { SharedSettingsStore.shared.set(k, v) }
+            }
+        )
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Echo filter").font(.headline)
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Strength")
+                    Spacer()
+                    Text("\(Int((settings.wrappedValue.strength * 100).rounded())) %").monospacedDigit().foregroundStyle(.secondary)
+                }
+                Slider(value: settings.strength, in: 0...1, step: 0.05)
+                Text("How much of the echo to take out. Lower keeps a little of the original sound, if the voice sounds thin.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Extra suppression")
+                Picker("Extra suppression", selection: settings.suppression) {
+                    Text("Off").tag(EchoFilterSettings.Suppression.off)
+                    Text("Low").tag(EchoFilterSettings.Suppression.low)
+                    Text("High").tag(EchoFilterSettings.Suppression.high)
+                }
+                .pickerStyle(.segmented).labelsHidden()
+                Text("A second stage that also quietens what the main filter leaves (room reverb, speaker distortion). High removes the most but can make voices sound slightly muffled when both sides talk at once.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Adaptation")
+                Picker("Adaptation", selection: settings.adaptation) {
+                    Text("Stable").tag(EchoFilterSettings.Adaptation.stable)
+                    Text("Fast").tag(EchoFilterSettings.Adaptation.fast)
+                }
+                .pickerStyle(.segmented).labelsHidden()
+                Text("Fast re-learns within a second when the echo changes (someone moved the laptop). Stable learns more slowly but holds up better in a noisy room. Changing it restarts the learning.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 4) {
+                Toggle("Set the echo delay by hand", isOn: Binding(
+                    get: { player.echoDelayOverride != nil },
+                    set: { on in workspace.setEchoDelayOverride(on ? (player.echoDelay ?? 0.12) * 1000 : nil) }
+                ))
+                if let o = player.echoDelayOverride {
+                    HStack {
+                        Slider(value: Binding(get: { o * 1000 }, set: { workspace.setEchoDelayOverride($0) }), in: 0...400, step: 5)
+                        Text("\(Int(o * 1000)) ms").monospacedDigit().frame(width: 56, alignment: .trailing)
+                    }
+                }
+                Text(player.echoDelay.map { "Measured for this recording: \(Int($0 * 1000)) ms." } ?? "Measuring the echo delay…")
+                    .font(.caption).foregroundStyle(.secondary)
+                Text("How long after the other side speaks their voice reaches your mic. Set it by hand only if the echo is still clearly audible; it is saved with this recording.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack {
+                Button("Reset to Defaults") {
+                    settings.wrappedValue = .standard
+                    workspace.setEchoDelayOverride(nil)
+                }
+                Spacer()
+                Text("Also used by Export Copy").font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .padding(16)
+        .frame(width: 340)
+    }
+}
+
+
+/// A one-point divider with a wider invisible grab area that shows the
+/// column-resize cursor; reports horizontal drag translation.
+struct PaneResizeHandle: View {
+    let onDrag: (Double) -> Void
+    let onEnd: () -> Void
+    let onReset: () -> Void
+
+    var body: some View {
+        Divider()
+            .overlay {
+                Color.clear
+                    .frame(width: 9)
+                    .contentShape(Rectangle())
+                    .pointerStyle(.columnResize)
+                    .gesture(
+                        DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                            .onChanged { onDrag($0.translation.width) }
+                            .onEnded { _ in onEnd() }
+                    )
+                    .onTapGesture(count: 2, perform: onReset)
+            }
+            .zIndex(1)
+    }
+}
