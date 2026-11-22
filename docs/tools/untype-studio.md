@@ -702,7 +702,7 @@
              bash scripts/release.sh
            ```
            Two identities share the name "Developer ID Application: GEORGIOS MARINOS", so pass the SHA-1 (`security find-identity -v -p codesigning`). The script runs the tests (only the failures listed in `scripts/release-known-failures.txt` are tolerated), verifies the Developer ID signature and hardened runtime, notarizes, and writes `untype-studio-<version>.zip`, a stapled `.dmg` and `SHA256SUMS` to `dist/release/`, plus `homebrew-tap/Casks/untype-studio.rb`.
-        3. Tag `v<version>` and create the GitHub release with those files. The script assumes the repository `biks2013-tools/untype-studio`; it does not exist yet (no release of untype studio has been made).
+        3. Tag `v<version>` and create the GitHub release with those files. The repository is `biks2013-tools/untype-studio`; the first release was v0.8.0 (2026-11-22), made with the identity `2C7D6068C232BA74073D56085DDBB04E5F14DF30` and the notarytool profile `untype-notary`.
         4. Copy `homebrew-tap/Casks/untype-studio.rb` into the tap (the script assumes `biks2013-tools/homebrew-untype`) and push.
 
         ## Cross-references
