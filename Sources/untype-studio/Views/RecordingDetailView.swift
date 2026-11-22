@@ -457,7 +457,7 @@ struct EchoSettingsView: View {
                     workspace.setEchoDelayOverride(nil)
                 }
                 Spacer()
-                Text("Also used by Export Copy").font(.caption).foregroundStyle(.secondary)
+                Text("Also used by Remove Echo into a Copy and Export Copy").font(.caption).foregroundStyle(.secondary)
             }
         }
         .padding(16)

@@ -25,8 +25,11 @@ public struct EchoFilterSettings: Sendable, Equatable, Codable {
     public var suppression: Suppression
     public var adaptation: Adaptation
 
-    /// The behaviour of 0.2.0: full strength, no second stage, fast learning.
-    public static let standard = EchoFilterSettings(strength: 1, suppression: .off, adaptation: .fast)
+    /// What unset settings mean: full strength, high suppression, fast
+    /// learning. Suppression was off until 2026-11-21; on four real
+    /// recordings high takes out 6–8 dB more of the echo and changes the
+    /// mic by at most 0.5 dB while the system side is silent.
+    public static let standard = EchoFilterSettings(strength: 1, suppression: .high, adaptation: .fast)
 
     public init(strength: Double, suppression: Suppression, adaptation: Adaptation) {
         self.strength = min(1, max(0, strength))

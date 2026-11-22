@@ -34,6 +34,8 @@ struct UntypeStudioApp: App {
                 Divider()
                 Button("Rename Recording…") { library.requestRename() }
                     .disabled(library.selection.count != 1)
+                Button("Remove Echo into a Copy") { library.removeEchoIntoCopy() }
+                    .disabled(!library.canRemoveEcho())
                 Button("Move to Trash") { library.requestTrash() }
                     .keyboardShortcut(.delete, modifiers: .command)
                     .disabled(library.selection.isEmpty)
@@ -81,7 +83,8 @@ final class StudioAppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 }
 
-/// Space plays / pauses and ←/→ skip 5 s, unless a text field has focus.
+/// Space plays / pauses and ←/→ skip 5 s, unless a text field has focus;
+/// in a text field the system's editing keys keep their meaning.
 @MainActor
 enum PlaybackKeys {
     static var player: (() -> PlayerController?)?
@@ -90,6 +93,18 @@ enum PlaybackKeys {
     static func install() {
         guard monitor == nil else { return }
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            // While text is being edited, the arrows and Delete with
+            // Command or Option are the system's editing keys (word and
+            // line moves, with Shift to select, delete word / to line
+            // start). They go straight to the text, before the menu's
+            // shortcuts (Option-←/→ skip, Command-Delete Move to Trash)
+            // or anything else can take them. (2026-11-22)
+            if let text = NSApp.keyWindow?.firstResponder as? NSTextView,
+               !event.modifierFlags.intersection([.command, .option]).isEmpty,
+               [123, 124, 125, 126, 51, 117].contains(event.keyCode) {
+                text.interpretKeyEvents([event])
+                return nil
+            }
             guard event.modifierFlags.intersection([.command, .control, .option]).isEmpty,
                   !(NSApp.keyWindow?.firstResponder is NSText),
                   let p = player?() else { return event }

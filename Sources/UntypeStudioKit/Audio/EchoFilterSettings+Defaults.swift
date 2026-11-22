@@ -4,8 +4,8 @@
 // The echo filter's strength, suppression and adaptation live in the
 // shared ~/.tool-agents/ntakker/.env (`NTAKKER_STUDIO_ECHO_*`), so they
 // show in both apps' Settings windows. The echo delay override is per
-// recording, in `<stem>.studio.json`. Unset keys mean the 0.2.0 behaviour
-// (`EchoFilterSettings.standard`).
+// recording, in `<stem>.studio.json`. Unset keys mean
+// `EchoFilterSettings.standard` (full strength, high suppression, fast).
 
 import Foundation
 import NtakkerCore

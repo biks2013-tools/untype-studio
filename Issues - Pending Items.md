@@ -4,6 +4,36 @@
 
 ## Pending items (most critical first)
 
+### One-folder mode (`untype-studio <folder>`) — open items (2026-11-22)
+- **Checked only at launch.** Started on a real recording folder: the window opened with that one recording listed and open. Copies joining the list, following a renamed folder and leaving the mode with Choose Library Folder were not exercised.
+- **No headless form.** It opens the app; minutes, meeting linking and clean-up are still done with its buttons (`clean-echo` is the only one with a terminal-only command).
+- **Transcript search covers only the listed recordings** in this mode, and the Join panel only them.
+- **A folder whose name is a command word** (`join`, `open`, …) must be given with a path (`./join`).
+
+### Editing keys in text fields (2026-11-22)
+- **Fixed in code, not confirmed by typing.** Option-←/→ in any text field ran the Playback menu's Back / Forward 5 Seconds instead of moving by word, and Command-Delete ran Move to Trash; the user also reported Command-←/→ not working in the Rename sheet (cause not found: no shortcut of the app uses them). `PlaybackKeys` (UntypeStudioApp.swift) now hands the arrows and Delete with Command or Option straight to the text being edited. Needs the user's confirmation that all four combinations work, in the Rename sheet and the other fields.
+
+### Rename after the meeting or the minutes — open items (2026-11-22)
+- **Not clicked through live.** *Rename After Meeting…*, *Link & Rename…* and *Rename After Title…* were built and the app launched, but not pressed (they rename recordings in the user's library). The naming is unit-tested (`RecordingNamingTests`); the rename behind the sheet is the existing, tested one.
+- **The rename sheet belongs to the sidebar's view.** The new buttons open it from the inspector; whether it also appears with the sidebar hidden was not checked.
+- **A split session takes one name.** Renaming after the meeting renames the session folder, so every part follows, as with a plain rename.
+- **No command-line form**, and no rename of several recordings at once (for example after `match-meetings`).
+
+### Channels and ranges / changing a recording itself — open items (2026-11-22)
+- **Not clicked through live.** The Cut tab's new buttons (New recording from Both / Mic / System, New recording with only Mic / System, Remove from this recording, Write to This Recording) were built and the app launched, but not pressed: they write into, or change, the user's library. The file operations are unit-tested (`ChannelCopyTests`), including real moves to the Trash.
+- **Removing a track leaves that channel's lines in the main transcript** (`<stem>.transcript.jsonl`, `segments.jsonl`); only the channel's own transcript goes to the Trash.
+- **Undo of Write to This Recording is by hand:** move the rewritten track away, then Put Back the original from the Trash.
+- **Writing silence into an AAC track encodes it again** (one more lossy generation for the whole track, not only the silenced range).
+- **The 10 s "still recording" check also blocks a second in-place change** made within 10 s of writing silence (the rewritten file is new).
+- **No command-line form** for these actions (only the Cut tab).
+
+### Echo removal into a copy — open items (2026-11-21)
+- **The echo delay is measured in one place only.** `EchoDelayEstimator` looks at two minutes a quarter of the way into the recording. If the microphone is silent or muted there, no delay is found and `EchoCleaner` silently uses 0 ms, so the cleaning does little. Seen on `a test recording of 2026-11-19` (which has almost no echo, so nothing was lost). Fix: measure in several places and report when nothing is found.
+- **The cleaned copy keeps the old microphone transcript**, with the other side's words in it, until the copy is re-transcribed. Whether a transcript of the cleaned microphone is free of them has not been checked.
+- **Echo is reduced, not removed:** 21–25 dB with high suppression on four real recordings (16 kHz AAC). Trying other canceller settings on one recording (no divergence reset, smaller step, shorter filter) changed the typical frame by under 1 dB, so more needs a different method, not tuning.
+- **Not clicked through live:** *Remove Echo into a Copy* in the sidebar menu and File menu was built, not clicked; `untype-studio clean-echo` was run on a copy of a real recording and `cleanCopy` is unit-tested.
+- **Unset suppression now means high in the studio; ntakker's own copy of the Settings pane still shows Off** when `NTAKKER_STUDIO_ECHO_SUPPRESSION` is unset. Carry the one-line change (`SharedCorePanes.swift`) to ntakker, or it is lost when the vendored folders are copied again.
+
 ### Split from ntakker — open items (2026-11-20)
 - **Not released and no repository yet.** The project builds, its 58 tests pass and an ad-hoc signed `dist/untype-studio.app` runs, but there is no git repository, GitHub repository, signed release or Homebrew cask. `scripts/release.sh` assumes the GitHub repository `biks2013-tools/untype-studio` and the tap `biks2013-tools/untype`; neither was created or confirmed.
 - **Two copies of the studio exist.** `ntakker-studio` is still in the ntakker repository (and in /Applications if installed). Both apps open the same library and write the same per-recording files. Decide when to retire `ntakker-studio` there (source, cask, docs).

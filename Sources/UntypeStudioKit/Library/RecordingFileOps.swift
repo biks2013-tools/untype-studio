@@ -20,6 +20,15 @@
 // itself is never renamed or trashed, and a recording whose audio was
 // written in the last few seconds (ntakker is still recording it) is
 // left alone.
+//
+// 2026-11-22 (user decision): two actions change a recording itself.
+//   • Remove a track: the mic or the system track of a split recording,
+//     with the transcript of that channel, goes to the Trash; the
+//     recording keeps the other track.
+//   • Write silence: silenced ranges are written into the track's own
+//     file; the file as it was goes to the Trash.
+// Both are undone with Finder's Put Back (for a silenced track, after
+// moving the rewritten file away).
 
 import Foundation
 
@@ -29,6 +38,9 @@ public enum RecordingFileOpsError: LocalizedError, Equatable {
     case alreadyExists(String)
     case stillRecording(String)
     case outsideLibrary(String)
+    case noTrack(String)
+    case onlyTrack(String)
+    case nothingSilenced
 
     public var errorDescription: String? {
         switch self {
@@ -37,6 +49,9 @@ public enum RecordingFileOpsError: LocalizedError, Equatable {
         case .alreadyExists(let n): return "“\(n)” already exists in that folder."
         case .stillRecording(let n): return "“\(n)” is still being recorded. Stop the recording first."
         case .outsideLibrary(let n): return "“\(n)” is not inside the library folder."
+        case .noTrack(let what): return "This recording has no separate \(what) track."
+        case .onlyTrack(let what): return "The \(what) track is the recording's only audio; move the recording to the Trash instead."
+        case .nothingSilenced: return "No range is silenced on a track this recording has."
         }
     }
 }
@@ -174,6 +189,95 @@ public enum RecordingFileOps {
         return trashed
     }
 
+    /// What removing the `role` track removes: its audio file and the
+    /// transcript of that channel (`<stem>.<role>.transcript.jsonl`, with
+    /// its `.orig` backup). Lines of that channel in other transcripts stay.
+    public static func trackItems(
+        _ role: AudioTrackRole, of recording: Recording, fileManager: FileManager = .default
+    ) -> [URL] {
+        let audio = recording.tracks.filter { $0.role == role }.map(\.url)
+        let transcript = "\(recording.stem).\(role.fileToken).transcript.jsonl"
+        let sidecars = files(of: recording, fileManager: fileManager)
+            .filter { $0.lastPathComponent == transcript || $0.lastPathComponent == transcript + ".orig" }
+        return audio + sidecars
+    }
+
+    /// Move the `role` track of `recording` (and that channel's
+    /// transcript) to the Trash. The recording must keep another track.
+    /// Returns where each item went.
+    @discardableResult
+    public static func removeTrack(
+        _ role: AudioTrackRole, from recording: Recording, libraryRoot: URL,
+        now: Date = Date(), fileManager: FileManager = .default
+    ) throws -> [URL] {
+        guard isInside(recording.folder, libraryRoot) else {
+            throw RecordingFileOpsError.outsideLibrary(recording.displayName)
+        }
+        guard recording.tracks.contains(where: { $0.role == role }) else {
+            throw RecordingFileOpsError.noTrack(role.fileToken)
+        }
+        guard recording.tracks.contains(where: { $0.role != role }) else {
+            throw RecordingFileOpsError.onlyTrack(role.fileToken)
+        }
+        try ensureNotRecording(recording, now: now, fileManager: fileManager)
+        var trashed: [URL] = []
+        for item in trackItems(role, of: recording, fileManager: fileManager) {
+            var result: NSURL?
+            try fileManager.trashItem(at: item, resultingItemURL: &result)
+            trashed.append((result as URL?) ?? item)
+        }
+        return trashed
+    }
+
+    /// Write `silence` into the recording's own track files: each track
+    /// with silenced ranges is rewritten (same format, same length, same
+    /// creation date) and the file as it was goes to the Trash. Every
+    /// track is rewritten before any is replaced, so a failure leaves the
+    /// recording as it was. Returns where the old files went.
+    @discardableResult
+    public static func writeSilence(
+        _ silence: ChannelSilence, into recording: Recording, libraryRoot: URL,
+        now: Date = Date(), fileManager: FileManager = .default,
+        progress: (Double) -> Void = { _ in }
+    ) throws -> [URL] {
+        guard isInside(recording.folder, libraryRoot) else {
+            throw RecordingFileOpsError.outsideLibrary(recording.displayName)
+        }
+        let work = recording.tracks.filter { !silence.ranges(for: $0.role).isEmpty }
+        guard !work.isEmpty else { throw RecordingFileOpsError.nothingSilenced }
+        try ensureNotRecording(recording, now: now, fileManager: fileManager)
+
+        var rewritten: [(track: AudioTrack, temp: URL)] = []
+        do {
+            for (i, track) in work.enumerated() {
+                // Hidden, so a scan in between does not see a new recording.
+                let temp = recording.folder.appendingPathComponent(".silencing-\(track.url.lastPathComponent)")
+                try? fileManager.removeItem(at: temp)
+                rewritten.append((track, temp))
+                let length = try AudioCutter.duration(of: track.url)
+                try AudioCutter.cut(
+                    track.url, to: temp, plan: CutPlan(ranges: [], duration: length + 1),
+                    silence: silence.ranges(for: track.role)
+                ) { p in progress((Double(i) + p) / Double(work.count)) }
+                if let created = RecordingLibraryScanner.creationDate(track.url) {
+                    try? fileManager.setAttributes([.creationDate: created], ofItemAtPath: temp.path)
+                }
+            }
+        } catch {
+            for r in rewritten { try? fileManager.removeItem(at: r.temp) }
+            throw error
+        }
+        var trashed: [URL] = []
+        for r in rewritten {
+            var result: NSURL?
+            try fileManager.trashItem(at: r.track.url, resultingItemURL: &result)
+            trashed.append((result as URL?) ?? r.track.url)
+            try fileManager.moveItem(at: r.temp, to: r.track.url)
+        }
+        progress(1)
+        return trashed
+    }
+
     /// Throws when an audio file of `recording` was written in the last
     /// `activeWriteWindow` seconds.
     public static func ensureNotRecording(_ recording: Recording, now: Date = Date(), fileManager: FileManager = .default) throws {
@@ -185,7 +289,7 @@ public enum RecordingFileOps {
         }
     }
 
-    static func isInside(_ url: URL, _ root: URL) -> Bool {
+    public static func isInside(_ url: URL, _ root: URL) -> Bool {
         let path = url.standardizedFileURL.resolvingSymlinksInPath().path
         let rootPath = root.standardizedFileURL.resolvingSymlinksInPath().path
         return path == rootPath || path.hasPrefix(rootPath.hasSuffix("/") ? rootPath : rootPath + "/")

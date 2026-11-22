@@ -197,7 +197,7 @@ struct EchoProcessorTests {
         let mic = (0..<ref.count).map { i in i >= delay ? 0.5 * ref[i - delay] : 0 }
         let zero = EchoProcessor(sampleRate: rate, settings: .init(strength: 0, suppression: .off, adaptation: .fast))
         #expect(zero.process(mic: mic, reference: ref) == mic)
-        let full = EchoProcessor(sampleRate: rate, settings: .standard)
+        let full = EchoProcessor(sampleRate: rate, settings: .init(strength: 1, suppression: .off, adaptation: .fast))
         let half = EchoProcessor(sampleRate: rate, settings: .init(strength: 0.5, suppression: .off, adaptation: .fast))
         let f = full.process(mic: mic, reference: ref), h = half.process(mic: mic, reference: ref)
         let err = (0..<mic.count).map { abs(h[$0] - (0.5 * mic[$0] + 0.5 * f[$0])) }.max() ?? 1
@@ -274,6 +274,7 @@ struct EchoSettingsFileTests {
         let s = EchoFilterSettings(strength: 0.75, suppression: .high, adaptation: .stable)
         #expect(EchoFilterSettings.from(s.fileValues) == s)
         #expect(EchoFilterSettings.from([:]) == .standard)
+        #expect(EchoFilterSettings.standard.suppression == .high)
         #expect(EchoFilterSettings.from([SharedSettings.Keys.studioEchoSuppression: "loud"]) == .standard)
         #expect(s.fileValues[SharedSettings.Keys.studioEchoStrength] == "0.75")
     }

@@ -26,6 +26,20 @@ final class LibraryStore {
     static let ntakkerFolderKey = "com.ntakker-cli.ui.outputFolder"
 
     private(set) var root: URL?
+
+    /// The folder given on the command line (`untype-studio <folder>`),
+    /// set by `StudioMain` before the app starts. (2026-11-22)
+    nonisolated(unsafe) static var launchFolder: URL?
+    /// One-folder mode: the app was started on a recording's folder. Only
+    /// these folders are scanned, not a library: the given folder, and the
+    /// folders next to it whose name starts with its name (the copies the
+    /// studio writes: `…-clean-…`, `…-cut-…`, `…-part-…`). `root` is then
+    /// the folder that holds them, so a recording's folder can be renamed
+    /// and copies land where they always do. The shared recordings-folder
+    /// setting is neither read nor changed.
+    private(set) var focusFolders: [URL] = []
+    var isFocused: Bool { !focusFolders.isEmpty }
+    @ObservationIgnored private var openedLaunchRecording = false
     private(set) var recordings: [Recording] = []
     private(set) var isScanning = false
     private(set) var indexedLines = 0
@@ -69,6 +83,11 @@ final class LibraryStore {
     @ObservationIgnored private var pendingSeek: (id: String, time: Double, transcript: URL?)?
 
     init() {
+        if let folder = Self.launchFolder {
+            root = folder.deletingLastPathComponent()
+            focusFolders = [folder]
+            return
+        }
         // plan-025: the library is the shared recordings folder
         // (NTAKKER_RECORDINGS_DIR in ~/.tool-agents/ntakker/.env), the one
         // ntakker records into. Carry over a folder chosen before, once.
@@ -88,6 +107,7 @@ final class LibraryStore {
 
     /// The shared recordings folder changed (here, in ntakker, or by hand).
     func followSharedFolder() {
+        guard !isFocused else { return }
         let path = SharedSettingsStore.shared.string(SharedSettings.Keys.recordingsDir)
         let url = path.map { URL(fileURLWithPath: $0, isDirectory: true) }
         guard url?.standardizedFileURL != root?.standardizedFileURL else { return }
@@ -106,15 +126,31 @@ final class LibraryStore {
         if let root { panel.directoryURL = root }
         guard panel.runModal() == .OK, let url = panel.url else { return }
         SharedSettingsStore.shared.set(SharedSettings.Keys.recordingsDir, url.path)
+        // Choosing a library leaves one-folder mode.
+        if isFocused { focusFolders = []; root = nil }
         followSharedFolder()
     }
 
     func rescan() async {
         guard let root else { return }
         isScanning = true
-        let found = await Task.detached { RecordingLibraryScanner.scan(root: root) }.value
+        if isFocused { focusFolders = Self.withCopies(focusFolders, in: root) }
+        let focus = focusFolders
+        let found = await Task.detached { () -> [Recording] in
+            guard !focus.isEmpty else { return RecordingLibraryScanner.scan(root: root) }
+            var seen = Set<String>()
+            return focus.flatMap { RecordingLibraryScanner.scan(root: $0) }
+                .filter { seen.insert($0.id).inserted }
+                .sorted { $0.createdAt > $1.createdAt }
+        }.value
         recordings = found
         isScanning = false
+        // One-folder mode: open the folder's recording straight away.
+        if isFocused, !openedLaunchRecording, selection.isEmpty, let launch = Self.launchFolder,
+           let first = found.first(where: { RecordingFileOps.isInside($0.folder, launch) }) {
+            openedLaunchRecording = true
+            selection = [first.id]
+        }
         if let ws = workspace, let updated = found.first(where: { $0.id == ws.recording.id }) {
             await ws.adopt(updated)
         }
@@ -131,6 +167,23 @@ final class LibraryStore {
                 await ws.adopt(updated, showOnly: showOnly)
             }
         }
+    }
+
+    /// `folders` that still exist, plus the folders in `root` named after
+    /// one of them (`<name>-…`), in a stable order.
+    static func withCopies(_ folders: [URL], in root: URL) -> [URL] {
+        let fm = FileManager.default
+        var out = folders.filter { fm.fileExists(atPath: $0.path) }
+        // Keep the launch folder in the list even while it is being moved.
+        if out.isEmpty { out = folders }
+        let names = out.map(\.lastPathComponent)
+        let siblings = ((try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles])) ?? [])
+            .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        for s in siblings where names.contains(where: { s.lastPathComponent.hasPrefix($0 + "-") }) {
+            if !out.contains(where: { $0.standardizedFileURL == s.standardizedFileURL }) { out.append(s) }
+        }
+        return out
     }
 
     // MARK: - Selection
@@ -168,6 +221,16 @@ final class LibraryStore {
 
     /// Open a recording by folder (after a cut export or a join).
     func reveal(folder: URL) {
+        // One-folder mode: a copy written elsewhere joins the list first.
+        if isFocused, !focusFolders.contains(where: { $0.standardizedFileURL == folder.standardizedFileURL }),
+           FileManager.default.fileExists(atPath: folder.path) {
+            focusFolders.append(folder)
+            Task {
+                await rescan()
+                reveal(folder: folder)
+            }
+            return
+        }
         if let rec = recordings.first(where: { $0.folder.standardizedFileURL == folder.standardizedFileURL }) {
             selectedID = rec.id
         }
@@ -186,7 +249,30 @@ final class LibraryStore {
     func requestRename(_ ids: Set<String>? = nil) {
         let ids = ids ?? selection
         guard ids.count == 1, let rec = recordings.first(where: { ids.contains($0.id) }) else { return }
+        renameSuggestion = nil
         renameRequest = rec
+    }
+
+    /// The name the rename sheet proposes instead of the current one
+    /// (a name taken from the meeting or the minutes).
+    var renameSuggestion: String?
+
+    /// The name `recording` would take when named after `title`: the
+    /// title in front of `recording-<date>-<time>` and what follows it
+    /// (see `RecordingNaming`). `start` is when the recording started.
+    func name(of recording: Recording, after title: String, start: Date) -> String? {
+        RecordingNaming.name(title: title, currentName: renameName(of: recording), start: start)
+    }
+
+    /// Open the rename sheet for `recording` with the name it would take
+    /// after `title` filled in; the user confirms or edits it.
+    func requestRename(_ recording: Recording, after title: String, start: Date) {
+        guard let proposed = name(of: recording, after: title, start: start) else {
+            fileOpError = "“\(title)” leaves nothing to name the recording with."
+            return
+        }
+        renameSuggestion = proposed
+        renameRequest = recording
     }
 
     /// Ask to move recordings to the Trash (the selection by default).
@@ -228,6 +314,11 @@ final class LibraryStore {
         if wasOpen { selection = [] }
         do {
             let (folder, stem) = try RecordingFileOps.rename(recording, to: name, libraryRoot: root)
+            // One-folder mode: follow a renamed folder.
+            if let i = focusFolders.firstIndex(where: { $0.standardizedFileURL == recording.folder.standardizedFileURL }) {
+                focusFolders[i] = folder
+                if Self.launchFolder?.standardizedFileURL == recording.folder.standardizedFileURL { Self.launchFolder = folder }
+            }
             await rescan()
             let newID = folder.appendingPathComponent(stem).path
             if wasSelected || wasOpen, recordings.contains(where: { $0.id == newID }) { selection = [newID] }
@@ -252,6 +343,87 @@ final class LibraryStore {
         }
         await rescan()
         if !failures.isEmpty { fileOpError = failures.joined(separator: "\n") }
+    }
+
+    // MARK: - Remove echo into a copy (2026-11-21)
+
+    /// Progress (0…1) of the one background job on a recording's files
+    /// (a cleaned copy, silence being written), and what it is.
+    private(set) var jobProgress: Double?
+    private(set) var jobLabel: String?
+
+    /// Whether `ids` (the selection by default) is one recording with
+    /// separate microphone and system tracks, and no copy is being written.
+    func canRemoveEcho(_ ids: Set<String>? = nil) -> Bool {
+        let ids = ids ?? selection
+        guard jobProgress == nil, ids.count == 1,
+              let rec = recordings.first(where: { ids.contains($0.id) }) else { return false }
+        return rec.hasEchoReference
+    }
+
+    /// Write a copy of the recording with the echo removed from its
+    /// microphone track (`RecordingCutExporter.cleanCopy`), then open it.
+    /// The original is not changed.
+    func removeEchoIntoCopy(_ ids: Set<String>? = nil) {
+        let ids = ids ?? selection
+        guard canRemoveEcho(ids), let rec = recordings.first(where: { ids.contains($0.id) }) else { return }
+        let settings = EchoFilterSettings.load()
+        jobProgress = 0
+        jobLabel = "Removing echo from \(rec.displayName)"
+        Task {
+            do {
+                let result = try await Task.detached(priority: .userInitiated) {
+                    try RecordingCutExporter.cleanCopy(of: rec, echoSettings: settings) { p in
+                        Task { @MainActor in if self.jobProgress != nil { self.jobProgress = p } }
+                    }
+                }.value
+                jobProgress = nil
+                await rescan()
+                reveal(folder: result.folder)
+            } catch {
+                jobProgress = nil
+                fileOpError = "Removing the echo failed: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    // MARK: - Changing a recording itself (2026-11-22)
+
+    /// Move the mic or system track of `rec` to the Trash and reopen it.
+    /// The open recording is closed first: its player holds the files.
+    func removeTrack(_ role: AudioTrackRole, from rec: Recording) async {
+        guard let root, jobProgress == nil else { return }
+        let wasOpen = workspace?.recording.id == rec.id
+        if wasOpen { selection = [] }
+        do {
+            _ = try await Task.detached { try RecordingFileOps.removeTrack(role, from: rec, libraryRoot: root) }.value
+        } catch {
+            fileOpError = "Removing the track failed: \(error.localizedDescription)"
+        }
+        await rescan()
+        if wasOpen, recordings.contains(where: { $0.id == rec.id }) { selection = [rec.id] }
+    }
+
+    /// Write the silenced ranges into the track files of `rec` (the files
+    /// as they were go to the Trash) and reopen it.
+    func writeSilence(_ silence: ChannelSilence, into rec: Recording) async {
+        guard let root, jobProgress == nil else { return }
+        let wasOpen = workspace?.recording.id == rec.id
+        if wasOpen { selection = [] }
+        jobProgress = 0
+        jobLabel = "Writing silence into \(rec.displayName)"
+        do {
+            _ = try await Task.detached(priority: .userInitiated) {
+                try RecordingFileOps.writeSilence(silence, into: rec, libraryRoot: root) { p in
+                    Task { @MainActor in if self.jobProgress != nil { self.jobProgress = p } }
+                }
+            }.value
+        } catch {
+            fileOpError = "Writing the silence failed: \(error.localizedDescription)"
+        }
+        jobProgress = nil
+        await rescan()
+        if wasOpen, recordings.contains(where: { $0.id == rec.id }) { selection = [rec.id] }
     }
 
     // MARK: - Join

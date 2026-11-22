@@ -165,7 +165,7 @@ public struct StudioSettingsPane: View {
     public init() {}
 
     @SharedSetting(SharedSettings.Keys.studioEchoStrength) private var strength = "1"
-    @SharedSetting(SharedSettings.Keys.studioEchoSuppression) private var suppression = "off"
+    @SharedSetting(SharedSettings.Keys.studioEchoSuppression) private var suppression = "high"
     @SharedSetting(SharedSettings.Keys.studioEchoAdaptation) private var adaptation = "fast"
 
     public var body: some View {
@@ -189,7 +189,7 @@ public struct StudioSettingsPane: View {
                     Text("Stable").tag("stable"); Text("Fast").tag("fast")
                 }
                 .pickerStyle(.segmented)
-                Text("Used by untype studio's Remove echo while listening and by Export Copy with echo removal. The echo delay is set per recording, in the studio's player.")
+                Text("Used by untype studio's Remove echo while listening, by Remove Echo into a Copy and by Export Copy with echo removal. The echo delay is set per recording, in the studio's player.")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             Section("Calendar") {

@@ -355,21 +355,50 @@ final class RecordingWorkspace {
         guard exportProgress == nil, hasEdits else { return }
         let rec = recording, plan = cutPlan, start = audioStart, meta = metadata, echoSettings = player.echoSettings
         let silence = self.silence
+        let entriesByFile = placedEntries()
+        runExport { progress in
+            try RecordingCutExporter.export(
+                recording: rec, plan: plan, entriesByTranscript: entriesByFile,
+                audioStart: start, metadata: meta, removeEcho: removeEcho, echoSettings: echoSettings,
+                silence: silence, progress: progress
+            )
+        }
+    }
+
+    /// Write a new recording from `range` of this one (the whole of it
+    /// when `nil`), with every track or `onlyRole`'s only (2026-11-22).
+    /// Cuts are not applied; silenced ranges are written silent.
+    func newRecording(range: CutRange?, onlyRole: AudioTrackRole?) {
+        guard exportProgress == nil, range != nil || onlyRole != nil else { return }
+        if let range, range.duration <= 0.05 { return }
+        let rec = recording, start = audioStart, meta = metadata, length = duration
+        let silence = self.silence
+        let entriesByFile = placedEntries()
+        runExport { progress in
+            try RecordingCutExporter.extract(
+                recording: rec, range: range, onlyRole: onlyRole, duration: length,
+                entriesByTranscript: entriesByFile, audioStart: start, metadata: meta,
+                silence: silence, progress: progress
+            )
+        }
+    }
+
+    /// Every transcript's lines as the user sees them placed.
+    private func placedEntries() -> [TranscriptFile: [TranscriptEntry]] {
         var byFile: [TranscriptFile: [TranscriptEntry]] = [:]
         for (file, doc) in documents {
-            byFile[file] = doc.entries(audioStart: start, exact: isExact(file), syncOffsetSec: meta.syncOffsetSec)
+            byFile[file] = doc.entries(audioStart: audioStart, exact: isExact(file), syncOffsetSec: metadata.syncOffsetSec)
         }
-        let entriesByFile = byFile
+        return byFile
+    }
+
+    private func runExport(_ work: @escaping @Sendable (@escaping (Double) -> Void) throws -> CutExportResult) {
         exportProgress = 0
         lastExport = nil
         Task {
             do {
                 let result = try await Task.detached(priority: .userInitiated) {
-                    try RecordingCutExporter.export(
-                        recording: rec, plan: plan, entriesByTranscript: entriesByFile,
-                        audioStart: start, metadata: meta, removeEcho: removeEcho, echoSettings: echoSettings,
-                        silence: silence
-                    ) { p in
+                    try work { p in
                         Task { @MainActor in
                             if self.exportProgress != nil { self.exportProgress = p }
                         }
@@ -382,6 +411,15 @@ final class RecordingWorkspace {
             }
             exportProgress = nil
         }
+    }
+
+    /// Before a track file is removed or replaced: store the audio start
+    /// in `studio.json` if it is only known from the files' creation
+    /// dates, so the recording keeps its start time.
+    func pinAudioStart() {
+        guard metadata.audioStart == nil, metadataError == nil else { return }
+        let start = audioStart
+        saveMetadata { $0.audioStart = start }
     }
 
     // MARK: - Ask

@@ -97,6 +97,35 @@
           *Move to Trash* (also File > Rename Recording… and File > Move to
           Trash, Cmd-Delete, or the Delete key in the list; several
           selected recordings go to the Trash together).
+        - **Rename after the meeting or the minutes (added 2026-11-22).**
+          Three buttons open the Rename sheet with a name already filled
+          in, to confirm or edit: *Rename After Meeting…* on a linked
+          meeting (Info ▸ Meeting), *Link & Rename…* next to *Link* on a
+          meeting found in the calendar (links first, then proposes the
+          name), and *Rename After Title…* under the minutes (Minutes
+          tab; the title is the minutes' first `# heading`). The proposed
+          name is the meeting's subject or the minutes' title in front of
+          `recording-<date>-<time>` and whatever follows it
+          (`x-recording-2026-11-13-17-02-clean-…` becomes
+          `<title>-recording-2026-11-13-17-02-clean-…`). An older name
+          with a date but no `recording-` keeps its date part; a name
+          with no date gets `recording-<date>-<time>` from the
+          recording's start. In the title, `/` becomes `-`, `:` becomes
+          ` -`, and it is cut at 80 characters. Nothing is renamed until
+          *Rename* is pressed; the rename itself is the one described
+          below.
+        - **Remove Echo into a Copy (added 2026-11-21).** Right-click a
+          split recording (separate mic and system tracks) and choose
+          *Remove Echo into a Copy* (also in the File menu): the studio
+          writes a copy of the recording whose microphone track has the
+          system audio removed, in a `…-clean-<date>` folder, and opens
+          it. The sidebar footer shows the progress (about 20 s for 18
+          minutes of audio). The original is not changed. It is the same
+          cleaning as Export Copy with *Remove echo from the microphone*
+          and no cuts, with the echo filter settings and the recording's
+          echo delay override. The transcripts are copied as they are:
+          the copy's microphone transcript still holds the other side's
+          words until the copy is re-transcribed.
           - *Rename* renames what the sidebar shows: a recording with its
             session folder to itself renames the **folder** (for a paused /
             split session the folder holds every part, so all parts take the
@@ -182,8 +211,12 @@
           - *Echo delay by hand* 0–400 ms: replaces the measured delay for
             this recording; saved as `echoDelayMs` in `<stem>.studio.json`.
           Strength, suppression and adaptation are app-wide
-          (`studio.echo.*` preferences); unset means full strength, off,
-          fast.
+          (`NTAKKER_STUDIO_ECHO_*` in the shared settings file); unset
+          means full strength, high, fast. (Suppression was off when
+          unset until 2026-11-21. Measured that day on four real
+          recordings, whole file: canceller alone 14–17 dB, low 18–22 dB,
+          high 21–25 dB quieter while the system side talks; the mic
+          changes by at most 0.5 dB while the system side is silent.)
         - Space plays / pauses and Left / Right skip 5 s, but only while
           no text field has keyboard focus. The Playback menu offers the
           same actions as Option-Space, Option-Left, Option-Right, which
@@ -276,6 +309,58 @@
         silenced range is not removed from the timeline. Silences, like
         cuts, live in the open recording until exported; they are not
         saved with it.
+
+        ### Channels and ranges into new recordings (added 2026-11-22)
+
+        In the Cut tab:
+
+        - **New recording from** (Selection box) *Both* / *Mic* / *System*
+          writes a new recording that holds only the selected range: of
+          both tracks, or of the microphone or the system track alone. A
+          recording that is not split has one button, *This Range*. The
+          folder is `…-part-<date>`, `…-part-mic-<date>` or
+          `…-part-system-<date>`. The new recording's start time is where
+          the range begins, so its transcript lines keep their clock
+          times; lines outside the range are left out.
+        - **New recording with only** (Tracks box) *Mic* / *System* writes
+          a new recording that holds the whole of one track (`…-mic-<date>`,
+          `…-system-<date>`).
+        - A recording with one channel only gets that channel's transcript
+          lines: from every transcript the lines of the other source are
+          left out, and the other channel's own transcript is not copied.
+        - Cuts are not applied by these buttons (use Export Copy for
+          cuts). Silenced ranges are written silent, and the folder name
+          then also gets `-silenced`.
+        - The original is not changed. The result appears under the
+          buttons with *Open the Copy* and *Show in Finder*.
+
+        ### Changing the recording itself (added 2026-11-22)
+
+        Two actions change the open recording instead of writing a copy
+        (decided with the user on 2026-11-22). Both ask first, and what
+        they replace goes to the Trash, not away for good.
+
+        - **Remove from this recording** (Tracks box) *Mic…* / *System…*:
+          the track's audio file and that channel's transcript
+          (`<stem>.microphone.transcript.jsonl` or
+          `<stem>.system.transcript.jsonl`, with its `.orig` backup) go
+          to the Trash; the recording keeps the other track and stays in
+          the library under the same name. Lines of the removed channel
+          in the main transcript stay. The last track cannot be removed.
+          Finder's Put Back restores the files.
+        - **Write to This Recording…** (Silenced box): the silenced
+          ranges are written into the track's own file (same format,
+          same length, same creation date, 10 ms fades), and the file as
+          it was goes to the Trash. To undo, move the rewritten file away
+          and use Put Back. An AAC track is encoded again, once more than
+          the original.
+        - Before either, the recording's start time is stored in
+          `<stem>.studio.json` if it was only known from the audio files'
+          dates. The recording closes while its files change and opens
+          again afterwards; cuts and silences not yet exported are
+          dropped. A recording whose audio was written in the last 10
+          seconds is refused (it may still be recording), so a second
+          change right after writing silence has to wait that long.
 
         ### Re-transcribe
 
@@ -549,6 +634,54 @@
         `offsetSeconds`, `pauseBeforeSeconds`, `lines`) and, unless
         `--dry-run`, `joined` (folder, stem, parts, duration, lines).
         Exit codes as for `match-meetings`.
+
+        ### Open the app on one recording's folder (added 2026-11-22)
+
+        ```sh
+        untype-studio FOLDER          # same as: untype-studio open FOLDER
+        /Applications/untype-studio.app/Contents/MacOS/untype-studio FOLDER
+        ```
+
+        opens the app on the recording in FOLDER alone, without the
+        library: the folder is scanned directly (it does not have to be
+        inside the recordings folder of the settings, which is neither
+        read nor changed), its newest recording opens at once, and the
+        sidebar lists only the folder's recordings and the copies written
+        next to it (folders named `<folder's name>-…`, such as
+        `…-clean-…` and `…-cut-…`). Everything the app does works as
+        usual: cleaning up the audio (Remove Echo into a Copy, the Cut
+        tab), writing the minutes, linking the meeting, renaming (a
+        renamed folder is followed). File > Choose Library Folder… leaves
+        this mode. The app runs until its window is closed; the terminal
+        waits for it. A path that is not a folder exits with 64, a folder
+        with no recording in it with 1.
+
+        ### Remove echo from the command line (added 2026-11-21)
+
+        ```sh
+        untype-studio clean-echo --name TEXT [--library DIR] [--all]
+                                 [--suppression off|low|high] [--dry-run]
+        ```
+
+        writes the same copy as *Remove Echo into a Copy* for the split
+        recording whose name contains TEXT. When several split recordings
+        match (a cleaned copy also matches its original's name) the
+        command lists them and stops with exit code 64, unless `--all`
+        is given. The echo filter settings come from the shared settings
+        file; `--suppression` replaces the suppression level for this
+        run. `--dry-run` prints what would be cleaned and writes nothing.
+        It prints JSON: `library`, `dryRun`, `settings` (strength,
+        suppression, adaptation), `skippedNotSplit` (matching recordings
+        without separate tracks) and, per recording, `recording`,
+        `folder`, `stem`, `copy` (the new folder) and `echoDelayMs`, or
+        `error`. Exit codes: 0 success, 64 usage, 78 the settings file
+        cannot be read or there is no library folder, 1 nothing to clean
+        or a recording failed.
+
+        **Validated 2026-11-21** on a copy of an 18-minute recording
+        whose microphone was mostly the other side's voice: the copy was
+        written in about 20 s, echo delay 73 ms, the microphone 25 dB
+        quieter (typical 50 ms frame) while the system side talks.
 
         **Validated 2026-10-19** on a copy of the user's six-part
         "Daily-Projects" session (with part 1's mic file put back): 24:34

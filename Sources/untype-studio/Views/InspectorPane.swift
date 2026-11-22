@@ -139,6 +139,7 @@ struct ExchangeView: View {
 // MARK: - Minutes
 
 struct MinutesPanel: View {
+    @Environment(LibraryStore.self) private var library
     let workspace: RecordingWorkspace
     @AppStorage("studio.minutesLanguage") private var language = ""
 
@@ -184,6 +185,12 @@ struct MinutesPanel: View {
                         Button("Open") { NSWorkspace.shared.open(workspace.recording.minutesURL) }
                     }
                     Spacer()
+                    if let title = RecordingNaming.minutesTitle(workspace.minutes) {
+                        Button("Rename After Title…") {
+                            library.requestRename(workspace.recording, after: title, start: workspace.audioStart)
+                        }
+                        .help("Name the recording after the minutes' title, “\(title)”, in front of its date and time.")
+                    }
                 }
                 .padding(10)
             }
@@ -257,13 +264,15 @@ struct SpeakersPanel: View {
 struct CutPanel: View {
     @Environment(LibraryStore.self) private var library
     let workspace: RecordingWorkspace
+    /// The track "Remove from This Recording" is asking about.
+    @State private var trackToRemove: AudioTrackRole?
 
     var body: some View {
         let long = workspace.duration >= 3600
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 Text(workspace.canSilence
-                     ? "Drag across the waveform (or use a line's menu) to select a range, then add it as a cut — or, dragged on the Mic or System lane, silence it on that channel only, to take out a noise heard on one side. Export writes a new copy without the cuts (transcript times shifted to match), with the silenced ranges silent, and optionally with the echo removed from the microphone. The original is never changed."
+                     ? "Drag across the waveform (or use a line's menu) to select a range, then add it as a cut, make a new recording from it — or, dragged on the Mic or System lane, silence it on that channel only, to take out a noise heard on one side. Export writes a new copy without the cuts (transcript times shifted to match), with the silenced ranges silent, and optionally with the echo removed from the microphone. The original changes only with Remove from This Recording and Write to This Recording; what they replace goes to the Trash."
                      : "Drag across the waveform (or use a line's menu) to select a range, then add it as a cut. Export writes a new copy without the cuts, transcript times shifted to match, and optionally with the echo removed from the microphone. The original is never changed.")
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -294,6 +303,22 @@ struct CutPanel: View {
                                 Spacer()
                             }
                         }
+                        HStack {
+                            Text("New recording from").foregroundStyle(.secondary)
+                            if workspace.canSilence {
+                                Button("Both") { workspace.newRecording(range: s, onlyRole: nil) }
+                                    .help("Write a new recording with this range of the microphone and the system track")
+                                ForEach([AudioTrackRole.microphone, .system], id: \.self) { role in
+                                    Button(role == .microphone ? "Mic" : "System") { workspace.newRecording(range: s, onlyRole: role) }
+                                        .help("Write a new recording with this range of the \(role == .microphone ? "microphone" : "system") track only")
+                                }
+                            } else {
+                                Button("This Range") { workspace.newRecording(range: s, onlyRole: nil) }
+                                    .help("Write a new recording with this range only")
+                            }
+                            Spacer()
+                        }
+                        .disabled(workspace.exportProgress != nil || s.duration <= 0.05)
                     } else {
                         Text("Nothing selected").foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
                     }
@@ -327,6 +352,29 @@ struct CutPanel: View {
 
                 if workspace.canSilence {
                     SilencedBox(workspace: workspace, long: long)
+                    GroupBox("Tracks") {
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack {
+                                Text("New recording with only").foregroundStyle(.secondary)
+                                ForEach([AudioTrackRole.microphone, .system], id: \.self) { role in
+                                    Button(role == .microphone ? "Mic" : "System") { workspace.newRecording(range: nil, onlyRole: role) }
+                                        .help("Write a new recording that holds the whole \(role == .microphone ? "microphone" : "system") track and its transcript lines")
+                                }
+                                Spacer()
+                            }
+                            .disabled(workspace.exportProgress != nil)
+                            HStack {
+                                Text("Remove from this recording").foregroundStyle(.secondary)
+                                ForEach([AudioTrackRole.microphone, .system], id: \.self) { role in
+                                    Button(role == .microphone ? "Mic…" : "System…", role: .destructive) { trackToRemove = role }
+                                        .help("Move the \(role == .microphone ? "microphone" : "system") track of this recording, and its transcript, to the Trash")
+                                }
+                                Spacer()
+                            }
+                            .disabled(workspace.exportProgress != nil)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
 
                 if workspace.canRemoveEcho {
@@ -372,12 +420,33 @@ struct CutPanel: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(12)
         }
+        .confirmationDialog(
+            "Remove the \(trackToRemove == .microphone ? "microphone" : "system") track from this recording?",
+            isPresented: Binding(get: { trackToRemove != nil }, set: { if !$0 { trackToRemove = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button("Move the Track to the Trash", role: .destructive) {
+                guard let role = trackToRemove else { return }
+                trackToRemove = nil
+                workspace.pinAudioStart()
+                let rec = workspace.recording
+                Task { await library.removeTrack(role, from: rec) }
+            }
+            Button("Cancel", role: .cancel) { trackToRemove = nil }
+        } message: {
+            Text("Its audio file and the transcript of that channel go to the Trash; the recording keeps the other track. Finder's Put Back restores them. Cuts and silences not yet exported are dropped.")
+        }
     }
 }
 
 private func exportSummary(_ r: CutExportResult) -> String {
     var parts: [String] = []
-    if r.removedSeconds > 0 {
+    if let role = r.onlyRole {
+        parts.append("Holds the \(role == .microphone ? "microphone" : "system") track only.")
+    }
+    if r.isExtract {
+        parts.append("A new recording from the selected range; \(r.droppedLines) transcript lines outside it left out.")
+    } else if r.removedSeconds > 0 {
         parts.append("Removed \(StudioAsk.timecode(r.removedSeconds, longForm: true)) and \(r.droppedLines) transcript lines.")
     }
     if let d = r.echoDelay {
@@ -393,8 +462,10 @@ private func exportSummary(_ r: CutExportResult) -> String {
 
 /// The ranges silenced on each channel, with "whole track" shortcuts.
 private struct SilencedBox: View {
+    @Environment(LibraryStore.self) private var library
     let workspace: RecordingWorkspace
     let long: Bool
+    @State private var confirmWrite = false
 
     var body: some View {
         GroupBox("Silenced") {
@@ -430,9 +501,26 @@ private struct SilencedBox: View {
                     Button("Clear") { workspace.clearSilences() }.disabled(workspace.silence.isEmpty)
                 }
                 .controlSize(.small)
-                Text("Silenced ranges are heard as silence now and written silent by Export Copy. The transcript lines are kept.")
+                HStack {
+                    Button("Write to This Recording…", role: .destructive) { confirmWrite = true }
+                        .disabled(workspace.silence.isEmpty || workspace.exportProgress != nil)
+                        .help("Write the silenced ranges into this recording's own track files; the files as they are now go to the Trash")
+                    Spacer()
+                }
+                .controlSize(.small)
+                Text("Silenced ranges are heard as silence now and written silent by Export Copy and New recording, or into this recording itself by Write to This Recording. The transcript lines are kept.")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
+        }
+        .confirmationDialog("Write the silence into this recording?", isPresented: $confirmWrite, titleVisibility: .visible) {
+            Button("Write the Silence", role: .destructive) {
+                workspace.pinAudioStart()
+                let rec = workspace.recording, silence = workspace.silence
+                Task { await library.writeSilence(silence, into: rec) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The track files with silenced ranges are rewritten, in the same format and length. The files as they are now go to the Trash (Finder's Put Back restores them, once the rewritten file is moved away). Cuts not yet exported are dropped.")
         }
     }
 }
@@ -508,6 +596,7 @@ struct RetranscribePanel: View {
 /// meetings are saved in `<stem>.studio.json`; "Find in Calendar" runs the
 /// configured calendar command (Settings ▸ Studio ▸ Calendar).
 struct MeetingSection: View {
+    @Environment(LibraryStore.self) private var library
     let workspace: RecordingWorkspace
 
     var body: some View {
@@ -534,6 +623,8 @@ struct MeetingSection: View {
                 if let link = m.webLink, let url = URL(string: link) {
                     Button("Open in Calendar") { NSWorkspace.shared.open(url) }
                 }
+                Button("Rename After Meeting…") { renameAfter(m.subject) }
+                    .help("Name the recording after the meeting's subject, in front of its date and time.")
                 Button("Unlink") { workspace.unlinkMeeting() }
             }
             .padding(.top, 2)
@@ -573,8 +664,19 @@ struct MeetingSection: View {
                 Text(detail(m, confidence: confidence)).font(.caption2).foregroundStyle(.secondary)
             }
             Spacer()
-            Button("Link") { workspace.linkMeeting(m.event) }
+            VStack(alignment: .trailing, spacing: 4) {
+                Button("Link") { workspace.linkMeeting(m.event) }
+                Button("Link & Rename…") {
+                    workspace.linkMeeting(m.event)
+                    renameAfter(m.event.subject)
+                }
+                .help("Link the meeting and name the recording after its subject, in front of its date and time.")
+            }
         }
+    }
+
+    private func renameAfter(_ subject: String) {
+        library.requestRename(workspace.recording, after: subject, start: workspace.audioStart)
     }
 
     private func detail(_ m: MeetingMatch, confidence: MeetingMatch.Confidence?) -> String {

@@ -7,6 +7,9 @@
 //
 // 2026-10-27: right-click a recording to rename it, show it in Finder or
 // move it to the Trash (also the Delete key and the File menu).
+//
+// 2026-11-21: Remove Echo into a Copy (split recordings; also the File
+// menu), with its progress in the footer.
 
 import UntypeStudioKit
 import SwiftUI
@@ -59,6 +62,9 @@ struct LibrarySidebar: View {
                     .disabled(ids.count != 1)
                 Button("Show in Finder") { library.revealInFinder(ids) }
                 Divider()
+                Button("Remove Echo into a Copy") { library.removeEchoIntoCopy(ids) }
+                    .disabled(!library.canRemoveEcho(ids))
+                Divider()
                 Button(ids.count == 1 ? "Move to Trash" : "Move \(ids.count) Recordings to Trash", role: .destructive) {
                     library.requestTrash(ids)
                 }
@@ -93,12 +99,14 @@ struct LibrarySidebar: View {
         .overlay {
             if library.recordings.isEmpty, library.root != nil, !library.isScanning {
                 ContentUnavailableView("No recordings", systemImage: "tray",
-                                       description: Text("Nothing ntakker recorded was found in \(library.root?.lastPathComponent ?? "")."))
+                                       description: Text("Nothing ntakker recorded was found in \((library.focusFolders.first ?? library.root)?.lastPathComponent ?? "")."))
             }
         }
         .safeAreaInset(edge: .bottom) {
             HStack(spacing: 6) {
-                if library.isScanning { ProgressView().controlSize(.small) }
+                if let p = library.jobProgress {
+                    ProgressView(value: p).progressViewStyle(.circular).controlSize(.small)
+                } else if library.isScanning { ProgressView().controlSize(.small) }
                 Text(footer).font(.caption).foregroundStyle(.secondary).truncationTooltip(footer)
                 Spacer()
                 Button { Task { await library.rescan() } } label: { Image(systemName: "arrow.clockwise") }
@@ -123,7 +131,10 @@ struct LibrarySidebar: View {
     }
 
     private var footer: String {
-        "\(library.recordings.count) recordings · \(library.indexedLines) lines indexed"
+        if let p = library.jobProgress {
+            return "\(library.jobLabel ?? "Working")… \(Int(p * 100)) %"
+        }
+        return "\(library.recordings.count) recordings · \(library.indexedLines) lines indexed"
     }
 
     private var months: [(title: String, recordings: [Recording])] {
@@ -177,7 +188,7 @@ struct RenameRecordingSheet: View {
         }
         .padding(20)
         .onAppear {
-            name = library.renameName(of: recording)
+            name = library.renameSuggestion ?? library.renameName(of: recording)
             focused = true
         }
     }

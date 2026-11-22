@@ -39,6 +39,41 @@ written silent — with short fades — by Export Copy, together with any
 cuts and echo removal, into a new copy (`-silenced`); the original is
 never changed and transcript lines are kept. IMPLEMENTED.
 
+**FR-STU-19** *(2026-11-21, user request.)* — For a split recording,
+*Remove Echo into a Copy* (sidebar context menu, File menu) and
+`untype-studio clean-echo --name TEXT` write a copy whose microphone
+track has the system audio removed, with nothing cut; the original is
+never changed. The echo filter's extra suppression is high when it is
+not set (was off). IMPLEMENTED (the command was run on a real recording;
+the menu items were built, not clicked).
+
+**FR-STU-20** *(2026-11-22, user request.)* — In the Cut tab: a new
+recording from the selected range of both tracks, of the microphone
+only or of the system track only; a new recording with the whole of one
+track; and, changing the recording itself (user decision), removing its
+microphone or system track (to the Trash, with that channel's
+transcript) and writing the silenced ranges into its own track files
+(the files as they were go to the Trash). IMPLEMENTED (file operations
+unit-tested; the buttons were built, not clicked).
+
+**FR-STU-21** *(2026-11-22, user request.)* — A recording can be renamed
+after the calendar meeting it is linked to (Info ▸ Meeting: *Rename After
+Meeting…*, and *Link & Rename…* when linking) or after the title of its
+minutes (Minutes tab: *Rename After Title…*). In both cases the new name
+goes in front of `recording-<date>-<time>`; what follows it (a copy's
+suffix, a part number) is kept. The name is proposed in the Rename sheet
+and applied when the user confirms (FR-STU-16 rename). IMPLEMENTED (the
+naming is unit-tested, `RecordingNamingTests`; the buttons were built,
+not clicked).
+
+**FR-STU-22** *(2026-11-22, user request.)* — `untype-studio <folder>`
+opens the app on the recording in that folder alone: the files are found
+directly in the folder, the recording opens at once, and only it and its
+copies are listed. Meant for cleaning up the audio, writing the minutes
+or linking the meeting of one recording, wherever its folder is.
+IMPLEMENTED (launched on a real recording folder: one recording listed
+and opened; the error exits were run).
+
 **FR-STU-16** — From the library sidebar (context menu, File menu,
 Delete / Cmd-Delete) the user can rename a recording and move one or
 several recordings to the Trash, without Finder. Rename renames the

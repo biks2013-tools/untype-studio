@@ -12,6 +12,11 @@
 //     `<stem>-cut-<yyyy-MM-dd-HH-mm-ss>/` of that folder.
 // File names inside the copy keep the original stem, so ntakker's
 // naming rules still hold.
+//
+// 2026-11-22: a copy can hold one channel only (`onlyRole`: its track,
+// and the transcript lines of its source), and `extract` writes a new
+// recording from one range of the original (`…-part-…`), whose audio
+// start is moved to where the range begins.
 
 import AVFoundation
 import Foundation
@@ -21,12 +26,14 @@ public enum AudioCutError: Error, LocalizedError {
     case unreadable(URL, String)
     case nothingLeft
     case nothingToDo
+    case noTrack(String)
 
     public var errorDescription: String? {
         switch self {
         case .unreadable(let url, let why): return "Could not read \(url.lastPathComponent): \(why)"
         case .nothingLeft: return "The cut removes the whole recording."
         case .nothingToDo: return "Add a cut or a silence, or choose to remove the echo."
+        case .noTrack(let what): return "This recording has no separate \(what) track."
         }
     }
 }
@@ -102,6 +109,10 @@ public struct CutExportResult: Sendable {
     public let echoDelay: Double?
     /// Seconds replaced with silence, per channel.
     public let silencedSeconds: [AudioTrackRole: Double]
+    /// The one channel the copy holds (`nil`: every track).
+    public var onlyRole: AudioTrackRole?
+    /// Whether the copy is one range of the original (`extract`).
+    public var isExtract = false
 }
 
 public enum RecordingCutExporter {
@@ -119,6 +130,13 @@ public enum RecordingCutExporter {
     ///     cleaning runs on the original timeline, before the cut.
     ///   - silence: ranges of the mic / system track (original timeline)
     ///     to replace with silence in the copy (2026-10-21).
+    ///   - onlyRole: write this channel only — its track, and of every
+    ///     transcript the lines of its source; a transcript left with no
+    ///     lines is not written (2026-11-22).
+    ///   - isExtract: the plan keeps one range (see `extract`): the
+    ///     folder is named `…-part-…` instead of `…-cut-…`.
+    ///   - copyAudioStart: the copy's audio start, when it is not the
+    ///     original's (an extract starts where its range begins).
     public static func export(
         recording: Recording,
         plan: CutPlan,
@@ -128,16 +146,28 @@ public enum RecordingCutExporter {
         removeEcho: Bool = false,
         echoSettings: EchoFilterSettings = .standard,
         silence: ChannelSilence = ChannelSilence(),
+        onlyRole: AudioTrackRole? = nil,
+        isExtract: Bool = false,
+        copyAudioStart: Date? = nil,
         now: Date = Date(),
         progress: @escaping (Double) -> Void = { _ in }
     ) throws -> CutExportResult {
-        guard !plan.ranges.isEmpty || removeEcho || !silence.isEmpty else { throw AudioCutError.nothingToDo }
+        guard !plan.ranges.isEmpty || removeEcho || !silence.isEmpty || onlyRole != nil else { throw AudioCutError.nothingToDo }
         guard plan.resultDuration > 0.05 else { throw AudioCutError.nothingLeft }
+        let outStart = copyAudioStart ?? audioStart
         let micTrack = recording.tracks.first { $0.role == .microphone }
         let sysTrack = recording.tracks.first { $0.role == .system }
         if removeEcho, micTrack == nil || sysTrack == nil { throw EchoCleanerError.notSplit }
+        if let onlyRole, !recording.tracks.contains(where: { $0.role == onlyRole }) {
+            throw AudioCutError.noTrack(onlyRole.fileToken)
+        }
+        // Cleaning the mic is pointless in a copy that holds the system track only.
+        let removeEcho = removeEcho && onlyRole != .system
+        let tracks = recording.tracks.filter { onlyRole == nil || $0.role == onlyRole }
         let fm = FileManager.default
-        let suffix = [plan.ranges.isEmpty ? nil : "cut", removeEcho ? "clean" : nil, silence.isEmpty ? nil : "silenced"]
+        let roleToken: String? = onlyRole.map { $0 == .microphone ? "mic" : $0.fileToken }
+        let suffix = [plan.ranges.isEmpty ? nil : (isExtract ? "part" : "cut"), roleToken,
+                      removeEcho ? "clean" : nil, silence.isEmpty ? nil : "silenced"]
             .compactMap { $0 }.joined(separator: "-")
         let dest = destinationFolder(for: recording, suffix: suffix, now: now)
         try fm.createDirectory(at: dest, withIntermediateDirectories: true)
@@ -157,22 +187,29 @@ public enum RecordingCutExporter {
                 }
                 cleanedMic = tmp
             }
-            let trackCount = Double(max(1, recording.tracks.count))
-            for (i, track) in recording.tracks.enumerated() {
+            let trackCount = Double(max(1, tracks.count))
+            for (i, track) in tracks.enumerated() {
                 let out = dest.appendingPathComponent(track.url.lastPathComponent)
                 let source = track.role == .microphone ? (cleanedMic ?? track.url) : track.url
                 try AudioCutter.cut(source, to: out, plan: plan, silence: silence.ranges(for: track.role)) { p in
                     progress(cleanShare + (Double(i) + p) / trackCount * (0.95 - cleanShare))
                 }
-                try? fm.setAttributes([.creationDate: audioStart], ofItemAtPath: out.path)
+                try? fm.setAttributes([.creationDate: outStart], ofItemAtPath: out.path)
             }
             if let cleanedMic { try? fm.removeItem(at: cleanedMic) }
 
             var dropped = 0
             var exact: [String] = []
             for transcript in recording.transcripts {
-                let entries = entriesByTranscript[transcript] ?? []
-                let segments = TranscriptRetimer.retime(entries, plan: plan, audioStart: audioStart)
+                var entries = entriesByTranscript[transcript] ?? []
+                if let onlyRole {
+                    let had = !entries.isEmpty
+                    entries = entries.filter { $0.segment.source == onlyRole.sourceTag }
+                    // The other channel's transcript: nothing of it belongs in the copy.
+                    if had, entries.isEmpty { continue }
+                    if transcript.label == Self.otherChannel(of: onlyRole)?.fileToken { continue }
+                }
+                let segments = TranscriptRetimer.retime(entries, plan: plan, audioStart: outStart)
                 dropped += entries.count - segments.count
                 let out = dest.appendingPathComponent(transcript.url.lastPathComponent)
                 try TranscriptDocument.write(segments, to: out)
@@ -180,7 +217,7 @@ public enum RecordingCutExporter {
             }
 
             let meta = StudioMetadata(
-                audioStart: audioStart,
+                audioStart: outStart,
                 speakerNames: metadata.speakerNames,
                 syncOffsetSec: 0,
                 exactTimingTranscripts: exact
@@ -193,12 +230,75 @@ public enum RecordingCutExporter {
                 echoDelay: echoDelay,
                 silencedSeconds: silence.ranges.compactMapValues { r in
                     r.isEmpty ? nil : r.reduce(0) { $0 + $1.duration }
-                }
+                },
+                onlyRole: onlyRole, isExtract: isExtract
             )
         } catch {
             try? fm.removeItem(at: dest)
             throw error
         }
+    }
+
+    /// A copy of `recording` with the echo of the system track removed
+    /// from the microphone track and nothing else changed (2026-11-21):
+    /// the recording is read from disk and exported with no cuts. The
+    /// transcripts are copied as they are — the microphone transcript
+    /// still holds what was heard through the echo until the copy is
+    /// re-transcribed.
+    public static func cleanCopy(
+        of recording: Recording,
+        echoSettings: EchoFilterSettings,
+        now: Date = Date(),
+        progress: @escaping (Double) -> Void = { _ in }
+    ) throws -> CutExportResult {
+        guard recording.hasEchoReference else { throw EchoCleanerError.notSplit }
+        let part = try JoinPart.load(recording)
+        return try export(
+            recording: recording, plan: CutPlan(ranges: [], duration: part.duration),
+            entriesByTranscript: part.entriesByTranscript, audioStart: part.audioStart,
+            metadata: part.metadata, removeEcho: true, echoSettings: echoSettings,
+            now: now, progress: progress
+        )
+    }
+
+    static func otherChannel(of role: AudioTrackRole) -> AudioTrackRole? {
+        switch role {
+        case .microphone: return .system
+        case .system: return .microphone
+        case .mixed: return nil
+        }
+    }
+
+    /// A new recording from `range` of `recording` (the whole of it when
+    /// `nil`), with every track or `onlyRole`'s only (2026-11-22). The
+    /// new recording's audio start is where the range begins, so its
+    /// lines keep their wall-clock times. Silenced ranges that fall in
+    /// the range are written silent. The original is not changed.
+    public static func extract(
+        recording: Recording,
+        range: CutRange?,
+        onlyRole: AudioTrackRole?,
+        duration: Double,
+        entriesByTranscript: [TranscriptFile: [TranscriptEntry]],
+        audioStart: Date,
+        metadata: StudioMetadata,
+        silence: ChannelSilence = ChannelSilence(),
+        now: Date = Date(),
+        progress: @escaping (Double) -> Void = { _ in }
+    ) throws -> CutExportResult {
+        guard range != nil || onlyRole != nil else { throw AudioCutError.nothingToDo }
+        var cuts: [CutRange] = []
+        var start: Date?
+        if let range {
+            cuts = [CutRange(start: 0, end: range.start), CutRange(start: range.end, end: duration)]
+            start = audioStart.addingTimeInterval(max(0, range.start))
+        }
+        return try export(
+            recording: recording, plan: CutPlan(ranges: cuts, duration: duration),
+            entriesByTranscript: entriesByTranscript, audioStart: audioStart, metadata: metadata,
+            silence: silence, onlyRole: onlyRole, isExtract: range != nil, copyAudioStart: start,
+            now: now, progress: progress
+        )
     }
 
     static func destinationFolder(for recording: Recording, suffix: String = "cut", now: Date) -> URL {
@@ -223,5 +323,13 @@ public enum RecordingCutExporter {
             n += 1
         }
         return candidate
+    }
+}
+
+extension Recording {
+    /// Separate microphone and system tracks: the echo of the system
+    /// track can be removed from the microphone track.
+    public var hasEchoReference: Bool {
+        tracks.contains { $0.role == .microphone } && tracks.contains { $0.role == .system }
     }
 }
