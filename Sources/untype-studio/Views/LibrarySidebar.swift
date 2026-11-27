@@ -10,6 +10,9 @@
 //
 // 2026-11-21: Remove Echo into a Copy (split recordings; also the File
 // menu), with its progress in the footer.
+//
+// 2026-11-27: Meetings and Videos (the videos untype digested) are listed
+// apart, chosen at the top of the sidebar; search looks in the list shown.
 
 import UntypeStudioKit
 import SwiftUI
@@ -41,17 +44,17 @@ struct LibrarySidebar: View {
                     }
                 }
                 Section {
-                    if library.hits.isEmpty {
+                    if library.shownHits.isEmpty {
                         Text(library.searching ? "Searching…" : library.query.count < 2 ? "Type at least 2 letters" : "No transcript lines match")
                             .foregroundStyle(.secondary)
                     }
-                    ForEach(library.hits) { hit in
+                    ForEach(library.shownHits) { hit in
                         SearchHitRow(hit: hit, query: library.query)
                             .contentShape(Rectangle())
                             .onTapGesture { library.open(hit) }
                     }
                 } header: {
-                    Text(library.hits.count >= 300 ? "In transcripts (first 300)" : "In transcripts (\(library.hits.count))")
+                    Text(library.hits.count >= 300 ? "In transcripts (first 300)" : "In transcripts (\(library.shownHits.count))")
                 }
             }
         }
@@ -101,10 +104,24 @@ struct LibrarySidebar: View {
             Text(library.fileOpError ?? "")
         }
         .overlay {
-            if library.recordings.isEmpty, library.root != nil, !library.isScanning {
-                ContentUnavailableView("No recordings", systemImage: "tray",
-                                       description: Text("Nothing ntakker recorded was found in \((library.focusFolders.first ?? library.root)?.lastPathComponent ?? "")."))
+            if library.shownRecordings.isEmpty, library.root != nil, !library.isScanning {
+                if library.shownKind == .video {
+                    ContentUnavailableView("No videos", systemImage: "play.rectangle",
+                                           description: Text("Videos digested by untype (untype → Video digest) appear here once their folder is in the library."))
+                } else {
+                    ContentUnavailableView("No recordings", systemImage: "tray",
+                                           description: Text("Nothing ntakker recorded was found in \((library.focusFolders.first ?? library.root)?.lastPathComponent ?? "")."))
+                }
             }
+        }
+        .safeAreaInset(edge: .top) {
+            Picker("Show", selection: $library.shownKind) {
+                Text("Meetings (\(library.count(of: .meeting)))").tag(RecordingKind.meeting)
+                Text("Videos (\(library.count(of: .video)))").tag(RecordingKind.video)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding(.horizontal, 12).padding(.vertical, 6)
         }
         .safeAreaInset(edge: .bottom) {
             HStack(spacing: 6) {
@@ -138,7 +155,7 @@ struct LibrarySidebar: View {
         if let p = library.jobProgress {
             return "\(library.jobLabel ?? "Working")… \(Int(p * 100)) %"
         }
-        return "\(library.recordings.count) recordings · \(library.indexedLines) lines indexed"
+        return "\(library.shownRecordings.count) \(library.shownKind == .video ? "videos" : "recordings") · \(library.indexedLines) lines indexed"
     }
 
     private var months: [(title: String, recordings: [Recording])] {
@@ -146,7 +163,7 @@ struct LibrarySidebar: View {
         f.dateFormat = "LLLL yyyy"
         var order: [String] = []
         var groups: [String: [Recording]] = [:]
-        for r in library.recordings {
+        for r in library.shownRecordings {
             let key = r.createdAt == .distantPast ? "Undated" : f.string(from: r.createdAt)
             if groups[key] == nil { order.append(key) }
             groups[key, default: []].append(r)

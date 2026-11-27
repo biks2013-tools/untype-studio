@@ -81,6 +81,13 @@ public struct TranscriptFile: Sendable, Hashable, Codable, Identifiable {
     }
 }
 
+/// What a recording is: a meeting (or any other recording), or a video
+/// untype digested (its folder holds `<stem>.video.json`, plan-080 of untype).
+public enum RecordingKind: String, Sendable, Hashable, Codable, CaseIterable {
+    case meeting
+    case video
+}
+
 public struct Recording: Sendable, Hashable, Identifiable {
     /// Folder path + stem; stable across rescans.
     public var id: String { folder.appendingPathComponent(stem).path }
@@ -101,6 +108,7 @@ public struct Recording: Sendable, Hashable, Identifiable {
     /// Whether other recordings (not just this one's parts) live in the
     /// same folder.
     public let sharesFolder: Bool
+    public let kind: RecordingKind
 
     public init(
         folder: URL,
@@ -110,7 +118,8 @@ public struct Recording: Sendable, Hashable, Identifiable {
         attachments: [URL],
         createdAt: Date,
         byteSize: Int64,
-        sharesFolder: Bool = false
+        sharesFolder: Bool = false,
+        kind: RecordingKind = .meeting
     ) {
         self.folder = folder
         self.stem = stem
@@ -120,6 +129,7 @@ public struct Recording: Sendable, Hashable, Identifiable {
         self.createdAt = createdAt
         self.byteSize = byteSize
         self.sharesFolder = sharesFolder
+        self.kind = kind
     }
 
     /// Name shown in the library: the session folder's name when the

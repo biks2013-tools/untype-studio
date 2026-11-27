@@ -48,10 +48,33 @@ final class LibraryStore {
     private(set) var hits: [SearchHit] = []
     private(set) var searching = false
 
+    /// Which recordings the sidebar lists: the meetings, or the videos
+    /// untype digested (2026-11-27). Remembered across launches.
+    var shownKind: RecordingKind = RecordingKind(rawValue: UserDefaults.standard.string(forKey: "library.shownKind") ?? "") ?? .meeting {
+        didSet {
+            UserDefaults.standard.set(shownKind.rawValue, forKey: "library.shownKind")
+            let kept = selection.filter { id in recordings.first(where: { $0.id == id })?.kind == shownKind }
+            if kept != selection { selection = kept }
+        }
+    }
+    /// The recordings of the kind the sidebar lists.
+    var shownRecordings: [Recording] { recordings.filter { $0.kind == shownKind } }
+    /// The search hits in recordings of the kind the sidebar lists.
+    var shownHits: [SearchHit] {
+        let ids = Set(shownRecordings.map(\.id))
+        return hits.filter { ids.contains($0.recordingID) }
+    }
+    func count(of kind: RecordingKind) -> Int { recordings.count { $0.kind == kind } }
+
     /// The recordings selected in the sidebar. One opens in the detail
     /// view; several show the join panel.
     var selection: Set<String> = [] {
         didSet {
+            // A recording opened from elsewhere (the launch folder, a copy
+            // just written) shows its own kind's list.
+            if selection.count == 1, let rec = recordings.first(where: { $0.id == selection.first }), rec.kind != shownKind {
+                shownKind = rec.kind
+            }
             if selectedID != (oldValue.count == 1 ? oldValue.first : nil) { openSelected() }
             if selection != oldValue { prepareJoin() }
         }
@@ -612,8 +635,8 @@ single(ids).map { renameTitle(of: $0, from: source) != nil } ?? false
 
     var filteredRecordings: [Recording] {
         let words = TranscriptSearchIndex.fold(query).split(whereSeparator: \.isWhitespace).map(String.init)
-        guard !words.isEmpty else { return recordings }
-        return recordings.filter { r in
+        guard !words.isEmpty else { return shownRecordings }
+        return shownRecordings.filter { r in
             let name = TranscriptSearchIndex.fold(r.displayName + " " + r.stem)
             return words.allSatisfy(name.contains)
         }

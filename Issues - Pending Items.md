@@ -6,6 +6,7 @@
 
 ### Video digests from untype in the library — open items (2026-11-27)
 - **Not looked at in the app yet**: the library with the `Videos` link (on this Mac `~/Recordings/Videos` → iCloud Drive/untype/Videos) and a digest's HTML opened from the attachments.
+- **Meetings / Videos switch (FR-STU-31) not looked at in the app yet**: the sidebar's switch, its counts, and search limited to the list shown.
 - **Digests made on the iPhone have no audio** until the Mac resumes them, so they are not recordings and do not show in the library.
 - **iCloud files not downloaded** (Optimize Mac Storage) show as `.icloud` placeholders and are skipped until downloaded.
 

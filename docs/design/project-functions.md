@@ -123,6 +123,15 @@ others), and each one lists its digest (`<stem>.digest.html`,
 unit-tested with a linked folder; the link created on the user's Mac;
 the app redeployed, the library not yet looked at by the user).
 
+**FR-STU-31** *(2026-11-27, user request.)* — Videos are listed apart from
+the meeting recordings: a recording whose folder holds `<stem>.video.json`
+(written by untype's video digest) is a video, every other one a meeting.
+A Meetings / Videos switch at the top of the sidebar (with the count of
+each) chooses the list; the choice is remembered, the month groups, the
+search (names and transcript lines) and the footer count follow it, and a
+recording opened from elsewhere switches to its own list. IMPLEMENTED
+(scanner unit-tested; not yet looked at by the user).
+
 **FR-STU-16** — From the library sidebar (context menu, File menu,
 Delete / Cmd-Delete) the user can rename a recording and move one or
 several recordings to the Trash, without Finder. Rename renames the

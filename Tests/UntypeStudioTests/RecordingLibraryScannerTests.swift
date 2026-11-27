@@ -36,13 +36,15 @@ struct RecordingLibraryScannerTests {
         for name in [
             "recording-2026-11-27-10-55.m4a", "recording-2026-11-27-10-55.system.transcript.jsonl",
             "recording-2026-11-27-10-55.digest.html", "recording-2026-11-27-10-55.digest.docx",
-            "recording-2026-11-27-10-55.digest.json",
+            "recording-2026-11-27-10-55.digest.json", "recording-2026-11-27-10-55.video.json",
         ] { StudioFixtures.touch(video.appendingPathComponent(name)) }
+        StudioFixtures.touch(root.appendingPathComponent("meeting.m4a"))
         try FileManager.default.createSymbolicLink(at: root.appendingPathComponent("Videos"), withDestinationURL: elsewhere)
 
         let recs = RecordingLibraryScanner.scan(root: root)
-        #expect(recs.count == 1)
-        let r = try #require(recs.first)
+        #expect(recs.count == 2)
+        #expect(recs.first { $0.stem == "meeting" }?.kind == .meeting)
+        let r = try #require(recs.first { $0.kind == .video })
         #expect(r.folder.path.hasSuffix("/Videos/A-talk-recording-2026-11-27-10-55"), "\(r.folder.path)")
         #expect(r.transcripts.map(\.label) == ["system"])
         #expect(r.attachments.map(\.lastPathComponent).sorted() == ["recording-2026-11-27-10-55.digest.docx", "recording-2026-11-27-10-55.digest.html"])

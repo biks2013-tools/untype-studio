@@ -114,7 +114,8 @@ public enum RecordingLibraryScanner {
             return Recording(
                 folder: folder, stem: stem, tracks: ordered, transcripts: transcripts,
                 attachments: attachments, createdAt: created, byteSize: size,
-                sharesFolder: bases.count > 1
+                sharesFolder: bases.count > 1,
+                kind: names.contains("\(stem).video.json") ? .video : .meeting
             )
         }
     }
