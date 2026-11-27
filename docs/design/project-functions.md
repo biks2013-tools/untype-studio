@@ -113,6 +113,16 @@ calendar meeting (sidebar context menu, File menu, and inside the Rename
 sheet). Extends FR-STU-21. IMPLEMENTED (on a real recording both menu
 entries were found enabled; the sheet's two buttons were not clicked).
 
+**FR-STU-30** *(2026-11-27, user request.)* — The library shows the
+video digests untype makes (untype's plan-080), which live in iCloud
+Drive/untype/Videos: a link to that folder inside the library
+(`<library>/Videos`) is scanned like a folder, the recordings in it keep
+their path through the link (so renaming and the Trash work as for the
+others), and each one lists its digest (`<stem>.digest.html`,
+`<stem>.digest.docx`) among its attachments. IMPLEMENTED (scanner
+unit-tested with a linked folder; the link created on the user's Mac;
+the app redeployed, the library not yet looked at by the user).
+
 **FR-STU-16** — From the library sidebar (context menu, File menu,
 Delete / Cmd-Delete) the user can rename a recording and move one or
 several recordings to the Trash, without Finder. Rename renames the

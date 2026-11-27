@@ -28,6 +28,26 @@ struct RecordingLibraryScannerTests {
         #expect(r.displayName == "meeting-2026-10-16-18-40")
     }
 
+    @Test("a linked folder (untype's video digests in iCloud) is scanned through the link, with the digest files")
+    func linkedFolder() throws {
+        let root = StudioFixtures.tempDir("linked")
+        let elsewhere = StudioFixtures.tempDir("icloud-videos")
+        let video = elsewhere.appendingPathComponent("A-talk-recording-2026-11-27-10-55")
+        for name in [
+            "recording-2026-11-27-10-55.m4a", "recording-2026-11-27-10-55.system.transcript.jsonl",
+            "recording-2026-11-27-10-55.digest.html", "recording-2026-11-27-10-55.digest.docx",
+            "recording-2026-11-27-10-55.digest.json",
+        ] { StudioFixtures.touch(video.appendingPathComponent(name)) }
+        try FileManager.default.createSymbolicLink(at: root.appendingPathComponent("Videos"), withDestinationURL: elsewhere)
+
+        let recs = RecordingLibraryScanner.scan(root: root)
+        #expect(recs.count == 1)
+        let r = try #require(recs.first)
+        #expect(r.folder.path.hasSuffix("/Videos/A-talk-recording-2026-11-27-10-55"), "\(r.folder.path)")
+        #expect(r.transcripts.map(\.label) == ["system"])
+        #expect(r.attachments.map(\.lastPathComponent).sorted() == ["recording-2026-11-27-10-55.digest.docx", "recording-2026-11-27-10-55.digest.html"])
+    }
+
     @Test("parts are separate recordings and keep their own transcripts")
     func parts() {
         let root = StudioFixtures.tempDir("parts")

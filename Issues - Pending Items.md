@@ -4,6 +4,11 @@
 
 ## Pending items (most critical first)
 
+### Video digests from untype in the library — open items (2026-11-27)
+- **Not looked at in the app yet**: the library with the `Videos` link (on this Mac `~/Recordings/Videos` → iCloud Drive/untype/Videos) and a digest's HTML opened from the attachments.
+- **Digests made on the iPhone have no audio** until the Mac resumes them, so they are not recordings and do not show in the library.
+- **iCloud files not downloaded** (Optimize Mac Storage) show as `.icloud` placeholders and are skipped until downloaded.
+
 ### Rename After Minutes / After Linked Meeting on the recording — open items (2026-11-26)
 - **The Rename sheet's "Name it after" buttons were not clicked**, nor the two entries of the right-click menu; the File menu entries were listed and their availability checked on one real recording (both available).
 - **The menus read the recording's `studio.json` and minutes file** each time they are built, to know whether an entry applies (small files; not measured on a slow disk).

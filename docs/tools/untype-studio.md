@@ -57,6 +57,12 @@
         bash scripts/redeploy-untype-studio.sh       # stop, rebuild, install to /Applications/untype-studio.app, launch
         ```
 
+        - **untype's video digests** (2026-11-27): untype writes them in
+          iCloud Drive/untype/Videos, in the recording layout. To see them
+          in the library, link that folder into it once:
+          `ln -s ~/Library/Mobile\ Documents/com~apple~CloudDocs/untype/Videos "$NTAKKER_RECORDINGS_DIR/Videos"`.
+          The scanner follows a linked folder; the digest's HTML and Word
+          files are listed with the recording's attachments.
         - Bundle id: `com.giorgosmarinos.untype-studio`. Info.plist:
           `Resources/UntypeStudio-Info.plist` (embedded into the
           binary by the target's linker settings and copied into the

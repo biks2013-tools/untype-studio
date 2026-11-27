@@ -35,11 +35,7 @@ public enum RecordingLibraryScanner {
     }
 
     private static func scanDirectory(_ dir: URL, depth: Int, fileManager: FileManager, into out: inout [Recording]) {
-        let entries = (try? fileManager.contentsOfDirectory(
-            at: dir,
-            includingPropertiesForKeys: [.isDirectoryKey, .creationDateKey, .fileSizeKey],
-            options: [.skipsHiddenFiles, .skipsPackageDescendants]
-        )) ?? []
+        let entries = contents(of: dir, fileManager: fileManager)
         var files: [URL] = []
         for entry in entries {
             if isDirectory(entry) {
@@ -51,6 +47,20 @@ public enum RecordingLibraryScanner {
             }
         }
         out.append(contentsOf: group(files: files, folder: dir))
+    }
+
+    /// The entries of a folder. A link to a folder cannot be listed itself
+    /// (FileManager does not follow it), so its target is listed and the
+    /// entries are given back through the link's path.
+    static func contents(of dir: URL, fileManager: FileManager) -> [URL] {
+        let keys: [URLResourceKey] = [.isDirectoryKey, .creationDateKey, .fileSizeKey]
+        let options: FileManager.DirectoryEnumerationOptions = [.skipsHiddenFiles, .skipsPackageDescendants]
+        guard (try? dir.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true else {
+            return (try? fileManager.contentsOfDirectory(at: dir, includingPropertiesForKeys: keys, options: options)) ?? []
+        }
+        let target = dir.resolvingSymlinksInPath()
+        return ((try? fileManager.contentsOfDirectory(at: target, includingPropertiesForKeys: keys, options: options)) ?? [])
+            .map { dir.appendingPathComponent($0.lastPathComponent) }
     }
 
     /// Group the files of one folder into recordings.
@@ -94,7 +104,8 @@ public enum RecordingLibraryScanner {
             let ordered = tracks.sorted { order($0.role) < order($1.role) }
             let transcripts = (transcriptsByStem[stem] ?? []).sorted { transcriptOrder($0) < transcriptOrder($1) }
             var attachments: [URL] = []
-            for suffix in ["minutes.md", "mic.minutes.md", "system.minutes.md", "studio-qa.md"] where names.contains("\(stem).\(suffix)") {
+            // untype's video digest (plan-080 of untype) sits beside the recording it was made from.
+            for suffix in ["minutes.md", "mic.minutes.md", "system.minutes.md", "studio-qa.md", "digest.html", "digest.docx"] where names.contains("\(stem).\(suffix)") {
                 attachments.append(folder.appendingPathComponent("\(stem).\(suffix)"))
             }
             attachments.append(contentsOf: notes)
@@ -136,8 +147,18 @@ public enum RecordingLibraryScanner {
         }
     }
 
+    /// A folder, or a link to one: a library can hold a link to a folder kept
+    /// elsewhere (untype's video digests in iCloud Drive, linked as
+    /// `<library>/Videos`). The path through the link is kept, so the
+    /// recordings in it stay inside the library for renaming and the Trash.
     private static func isDirectory(_ url: URL) -> Bool {
-        (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+        if (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+            return true
+        }
+        guard (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true else {
+            return false
+        }
+        return (try? url.resolvingSymlinksInPath().resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
     }
 
     static func creationDate(_ url: URL) -> Date? {
