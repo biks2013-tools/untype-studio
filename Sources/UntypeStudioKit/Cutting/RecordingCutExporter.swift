@@ -115,7 +115,112 @@ public struct CutExportResult: Sendable {
     public var isExtract = false
 }
 
+/// What `RecordingCutExporter.applyInPlace` did.
+public struct InPlaceCutResult: Sendable {
+    public let removedSeconds: Double
+    public let droppedLines: Int
+    /// Where the files as they were went (the Trash).
+    public let trashed: [URL]
+}
+
 public enum RecordingCutExporter {
+
+    /// Remove the cuts from the recording itself, without a copy
+    /// (user request, 2026-11-26): every track is rewritten without the
+    /// removed ranges (and with `silence` written silent), every
+    /// transcript is re-timed, and `studio.json` keeps the speaker names,
+    /// the linked meeting and the echo delay, with exact timing.
+    ///
+    /// Everything is first written to a hidden folder inside the
+    /// recording's folder, so a failure while cutting leaves the
+    /// recording as it was. Only then do the files as they were go to
+    /// the Trash (Finder's Put Back restores them, once the new files
+    /// are moved away) and the new ones take their names. Other files of
+    /// the recording (minutes, Q&A, text exports) are left alone: the
+    /// timecodes in them still refer to the recording before the cut.
+    @discardableResult
+    public static func applyInPlace(
+        recording: Recording,
+        plan: CutPlan,
+        entriesByTranscript: [TranscriptFile: [TranscriptEntry]],
+        audioStart: Date,
+        metadata: StudioMetadata,
+        silence: ChannelSilence = ChannelSilence(),
+        libraryRoot: URL,
+        now: Date = Date(),
+        fileManager fm: FileManager = .default,
+        progress: @escaping (Double) -> Void = { _ in }
+    ) throws -> InPlaceCutResult {
+        guard !plan.ranges.isEmpty else { throw AudioCutError.nothingToDo }
+        guard RecordingFileOps.isInside(recording.folder, libraryRoot) else {
+            throw RecordingFileOpsError.outsideLibrary(recording.displayName)
+        }
+        try RecordingFileOps.ensureNotRecording(recording, now: now, fileManager: fm)
+        // A transcript whose lines were not handed over would be
+        // replaced by an empty one.
+        if let missing = recording.transcripts.first(where: { entriesByTranscript[$0] == nil }) {
+            throw AudioCutError.unreadable(missing.url, "its lines are not loaded")
+        }
+
+        // Hidden, so a scan in between does not see a new recording.
+        let staging = recording.folder.appendingPathComponent(".cutting-\(recording.stem)", isDirectory: true)
+        try? fm.removeItem(at: staging)
+        defer { try? fm.removeItem(at: staging) }
+        let result = try export(
+            recording: recording, plan: plan, entriesByTranscript: entriesByTranscript,
+            audioStart: audioStart, metadata: metadata, silence: silence,
+            destination: staging, now: now
+        ) { p in progress(p * 0.95) }
+
+        // The copy's metadata knows the exact-timing transcripts; the
+        // rest is the recording's own.
+        let metaName = "\(recording.stem).studio.json"
+        let staged = try StudioMetadata.load(from: staging.appendingPathComponent(metaName))
+        var meta = metadata
+        meta.audioStart = audioStart
+        meta.syncOffsetSec = 0
+        meta.exactTimingTranscripts = staged.exactTimingTranscripts
+        try meta.save(to: staging.appendingPathComponent(metaName))
+
+        let names = try fm.contentsOfDirectory(atPath: staging.path).filter { !$0.hasPrefix(".") }.sorted()
+        var trashed: [URL] = []
+        var swapped: [(original: URL, trash: URL?)] = []
+        do {
+            for name in names {
+                let original = recording.folder.appendingPathComponent(name)
+                var inTrash: URL?
+                if fm.fileExists(atPath: original.path) {
+                    var out: NSURL?
+                    try fm.trashItem(at: original, resultingItemURL: &out)
+                    inTrash = out as URL?
+                    if let inTrash { trashed.append(inTrash) }
+                }
+                swapped.append((original, inTrash))
+                try fm.moveItem(at: staging.appendingPathComponent(name), to: original)
+            }
+        } catch {
+            // Put back what was replaced so far: the recording must not
+            // be left half cut. A new file with no original (a first
+            // studio.json) goes too: it would mark the restored
+            // transcripts as exactly timed.
+            for s in swapped.reversed() {
+                try? fm.removeItem(at: s.original)
+                if let trash = s.trash { try? fm.moveItem(at: trash, to: s.original) }
+            }
+            throw error
+        }
+        // The backup a text edit kept of a transcript (`<file>.orig`) has
+        // the times before the cut; it goes with the transcript, so the
+        // next edit keeps a backup of the re-timed one.
+        for transcript in recording.transcripts {
+            let backup = recording.folder.appendingPathComponent(transcript.url.lastPathComponent + ".orig")
+            guard fm.fileExists(atPath: backup.path) else { continue }
+            var out: NSURL?
+            if (try? fm.trashItem(at: backup, resultingItemURL: &out)) != nil, let url = out as URL? { trashed.append(url) }
+        }
+        progress(1)
+        return InPlaceCutResult(removedSeconds: result.removedSeconds, droppedLines: result.droppedLines, trashed: trashed)
+    }
 
     /// Export a cut copy.
     ///
@@ -149,6 +254,7 @@ public enum RecordingCutExporter {
         onlyRole: AudioTrackRole? = nil,
         isExtract: Bool = false,
         copyAudioStart: Date? = nil,
+        destination: URL? = nil,
         now: Date = Date(),
         progress: @escaping (Double) -> Void = { _ in }
     ) throws -> CutExportResult {
@@ -169,7 +275,7 @@ public enum RecordingCutExporter {
         let suffix = [plan.ranges.isEmpty ? nil : (isExtract ? "part" : "cut"), roleToken,
                       removeEcho ? "clean" : nil, silence.isEmpty ? nil : "silenced"]
             .compactMap { $0 }.joined(separator: "-")
-        let dest = destinationFolder(for: recording, suffix: suffix, now: now)
+        let dest = destination ?? destinationFolder(for: recording, suffix: suffix, now: now)
         try fm.createDirectory(at: dest, withIntermediateDirectories: true)
 
         do {

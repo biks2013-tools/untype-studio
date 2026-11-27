@@ -4,6 +4,32 @@
 
 ## Pending items (most critical first)
 
+### Rename After Minutes / After Linked Meeting on the recording — open items (2026-11-26)
+- **The Rename sheet's "Name it after" buttons were not clicked**, nor the two entries of the right-click menu; the File menu entries were listed and their availability checked on one real recording (both available).
+- **The menus read the recording's `studio.json` and minutes file** each time they are built, to know whether an entry applies (small files; not measured on a slow disk).
+
+### Cut This Recording (cuts in place) — open items (2026-11-26)
+- **Not clicked in the app.** `applyInPlace` is unit-tested on WAV fixtures (lengths, re-timed lines, kept meeting, refusals); the button, its confirmation and the reopening of the recording were not run, and no real AAC recording was cut in place.
+- **Minutes, saved answers and text exports keep the old timecodes** after a cut in place (`.minutes.md`, `.studio-qa.md`, `.transcript.txt`, `segments.jsonl`); nothing marks them as out of date.
+- **AAC is encoded again** for the whole track, as with every cut.
+- **Undo is by hand:** move the new files away, then Put Back the five or so files from the Trash.
+- **The 10 s "still recording" check** blocks another in-place change right after.
+
+### Minutes of one side, deleting minutes, splitting the channels — open items (2026-11-26)
+- **Not run in the app.** The Both / Mic / System picker, *Delete…* and *Split into Two Recordings* were built, not clicked, and no one-sided minutes were requested from a provider. Unit-tested: the line filter, file names, jobs per scope, the request text, the scanner and the channel copies.
+- **The microphone's lines can hold the other side's words** when the system audio leaked into the microphone (speakers, no headphones): the microphone transcript then repeats the call, and its minutes look like the call's. Remove the echo into a copy and re-transcribe it first for a clean microphone side.
+- **One-sided minutes need source tags.** The picker appears only when the shown transcripts have lines of both channels; a transcript without them (a mixed recording) has the whole only.
+- **Split keeps the timeline.** Each copy has the full length of the recording, silence included; nothing is trimmed, and the copies are not linked to a meeting.
+- **Minutes of the whole are not copied** by the split, and the copies' `studio.json` keeps the speaker names of both sides.
+
+### Minutes jobs and the Settings button — open items (2026-11-26)
+- **Not run against a provider from the app.** The jobs are unit-tested with fed streams (`MinutesJobsTests`: two in turns, stop, failure, second start refused); pressing *Write Minutes* on two real recordings and switching between them was not done (it replaces their minutes and sends the transcripts to the provider). The Settings button was seen in the toolbar, not clicked; the quit question was not seen.
+- **"Keep Running" after closing the window** (the quit question appears because closing the last window quits): whether the window then stays or the app is left without one until the Dock icon is clicked was not checked.
+- **Quitting drops running jobs** (after asking). Jobs are not resumed at the next launch.
+- **Ask and re-transcription still stop** when another recording is opened; only minutes were moved to app-level jobs.
+- **Removing a track or writing silence is not blocked** while that recording's minutes are written (the minutes file is not touched by them; the minutes describe the transcript as it was at the start).
+- **Provider rate limits:** several jobs at once are several requests at once; a provider that refuses them shows as a failed job on that recording.
+
 ### One-folder mode (`untype-studio <folder>`) — open items (2026-11-22)
 - **Checked only at launch.** Started on a real recording folder: the window opened with that one recording listed and open. Copies joining the list, following a renamed folder and leaving the mode with Choose Library Folder were not exercised.
 - **No headless form.** It opens the app; minutes, meeting linking and clean-up are still done with its buttons (`clean-echo` is the only one with a terminal-only command).

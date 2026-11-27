@@ -97,6 +97,81 @@
           *Move to Trash* (also File > Rename Recording… and File > Move to
           Trash, Cmd-Delete, or the Delete key in the list; several
           selected recordings go to the Trash together).
+        - **Rename options on the recording (added 2026-11-26).** The
+          sidebar's right-click menu and the File menu have, under
+          *Rename…*, *Rename After Minutes…* and *Rename After Linked
+          Meeting…*; each is available when the recording has minutes
+          with a title (of the whole recording, else of the mic side,
+          else of the system side) or a linked calendar meeting, and
+          opens the Rename sheet with that name filled in. The Rename
+          sheet itself has a row *Name it after: Minutes | Linked
+          Meeting* that fills the field with either name. The name is
+          built as described above (the title in front of
+          `recording-<date>-<time>`), and nothing is renamed until
+          *Rename* is pressed. The buttons in the Minutes tab and in
+          Info ▸ Meeting remain.
+        - **Cut This Recording (added 2026-11-26).** Next to *Export Copy*
+          in the Cut tab, *Cut This Recording…* removes the cuts from the
+          recording itself: no new folder. After a confirmation the
+          tracks are rewritten without the removed ranges (silenced
+          ranges are written silent at the same time), every transcript
+          is re-timed, and `studio.json` keeps the speaker names, the
+          linked meeting and the echo delay. The audio, transcripts (with the
+          `.orig` backups of edited ones) and `studio.json` as they were
+          go to the Trash (Put Back restores
+          them, once the new files are moved away). Everything is
+          written to a hidden folder first, so a failure while cutting
+          leaves the recording as it was. Minutes, saved answers and the
+          text exports are not touched: their timecodes still refer to
+          the recording before the cut, so rewrite the minutes
+          afterwards. The echo is not removed by this action, and it is
+          refused while the recording's minutes are being written.
+        - **Minutes of one side; deleting minutes (added 2026-11-26).**
+          When a recording's transcript has lines of both channels, the
+          Minutes tab shows *Both | Mic | System* at the top. *Mic*
+          writes minutes from the microphone's lines only (you and the
+          room), *System* from the system audio's lines only (the other
+          side of the call); the request tells the model which side it
+          is reading. Each has its own file (`<stem>.minutes.md`,
+          `<stem>.mic.minutes.md`, `<stem>.system.minutes.md`), its own
+          job (the three can be written at the same time) and its own
+          Copy / Open / Rename After Title…; ● next to a name marks
+          minutes that exist, … ones being written. *Delete…* moves the
+          shown minutes' file to the Trash after asking (Put Back
+          restores it). Reading the two sides apart shows whether they
+          were two different conversations.
+        - **Split into Two Recordings (added 2026-11-26).** Cut ▸ Tracks ▸
+          *Split into Two Recordings* writes two new recordings from a
+          recording with separate tracks: `…-mic-<date>` with the
+          microphone track and its transcript lines, and
+          `…-system-<date>` with the system track and its lines (the
+          same copies as *New recording with only Mic / System*, both at
+          once). Each copy takes that side's minutes, when they were
+          written, as its `minutes.md`. The recording itself is not
+          changed. Each side can then be renamed, linked to its own
+          meeting and given its own minutes.
+        - **Settings button (added 2026-11-26).** The window's toolbar has
+          a *Settings* button (gear, top right) that opens the Settings
+          window, the same one as untype studio > Settings… (Cmd-,). It
+          is there whatever is shown, also before a library folder is
+          chosen and with the sidebar hidden.
+        - **Minutes keep running; several at once (added 2026-11-26).**
+          Writing the minutes of a recording is a job of the app, not of
+          the open recording: opening another recording does not stop
+          it, and *Write Minutes* / *Rewrite* can be pressed for other
+          recordings meanwhile, each job with its own request and its own
+          file. In the sidebar a recording whose minutes are being
+          written shows a small spinner and "minutes…"; a red warning
+          mark means the last attempt failed. Coming back to a recording
+          shows its text so far and *Stop*; a failure is shown at the top
+          of its Minutes tab until *Dismiss* or a new attempt. The file
+          is written only when a job finishes, so *Stop* or a failure
+          leaves earlier minutes as they were. While a job runs, its
+          recording cannot be renamed or moved to the Trash, nor can the
+          folder it lies in when the operation would move the whole
+          folder (the sheet or an alert says why); other recordings of a
+          shared folder are not held up, and quitting (also by closing
+          the window) asks first, because quitting drops the jobs.
         - **Rename after the meeting or the minutes (added 2026-11-22).**
           Three buttons open the Rename sheet with a name already filled
           in, to confirm or edit: *Rename After Meeting…* on a linked

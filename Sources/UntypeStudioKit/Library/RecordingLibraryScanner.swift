@@ -94,7 +94,7 @@ public enum RecordingLibraryScanner {
             let ordered = tracks.sorted { order($0.role) < order($1.role) }
             let transcripts = (transcriptsByStem[stem] ?? []).sorted { transcriptOrder($0) < transcriptOrder($1) }
             var attachments: [URL] = []
-            for suffix in ["minutes.md", "studio-qa.md"] where names.contains("\(stem).\(suffix)") {
+            for suffix in ["minutes.md", "mic.minutes.md", "system.minutes.md", "studio-qa.md"] where names.contains("\(stem).\(suffix)") {
                 attachments.append(folder.appendingPathComponent("\(stem).\(suffix)"))
             }
             attachments.append(contentsOf: notes)

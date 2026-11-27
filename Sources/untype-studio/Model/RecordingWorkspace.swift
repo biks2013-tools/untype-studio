@@ -65,10 +65,34 @@ final class RecordingWorkspace {
     @ObservationIgnored private var askTask: Task<Void, Never>?
 
     // Minutes
-    private(set) var minutes: String = ""
-    private(set) var minutesGenerating = false
-    private(set) var minutesSavedAt: Date?
-    @ObservationIgnored private var minutesTask: Task<Void, Never>?
+    // The minutes are written by a job of the library's `MinutesJobs`,
+    // not by this workspace, so they go on when another recording is
+    // opened and several recordings can have theirs written at once
+    // (2026-11-26). The workspace shows its recording's job, or the file.
+    @ObservationIgnored var minutesJobs: MinutesJobs?
+    /// Which minutes the panel shows and writes: of the whole recording,
+    /// or of one channel's lines alone (2026-11-26).
+    var minutesScope: MinutesScope = .whole
+    private var savedMinutes: [MinutesScope: String] = [:]
+    private var minutesJob: MinutesJob? { minutesJobs?.job(for: minutesScope.jobID(recordingID: recording.id)) }
+    var minutesURL: URL { minutesScope.url(for: recording) }
+    var minutesGenerating: Bool { minutesJob?.isRunning == true }
+    /// The text being received while a job runs, else the saved minutes.
+    var minutes: String { minutesGenerating ? (minutesJob?.text ?? "") : (savedMinutes[minutesScope] ?? "") }
+    /// Why the last attempt failed, until dismissed or started again.
+    var minutesError: String? { minutesJob?.error }
+    /// The scopes this recording's lines allow: one channel's minutes
+    /// need lines of both channels (else they are the whole).
+    var minutesScopes: [MinutesScope] {
+        let sources = Set(entries.map(\.segment.source))
+        return sources.contains(.microphone) && sources.contains(.system) ? MinutesScope.allCases : [.whole]
+    }
+    /// The lines the shown minutes are written from.
+    var minutesEntries: [TranscriptEntry] { minutesScope.entries(of: entries) }
+    func isMinutesRunning(_ scope: MinutesScope) -> Bool {
+        minutesJobs?.isRunning(scope.jobID(recordingID: recording.id)) == true
+    }
+    func hasMinutes(_ scope: MinutesScope) -> Bool { !(savedMinutes[scope] ?? "").isEmpty }
 
     // Re-transcribe
     private(set) var retranscribeProgress: RetranscribeProgress?
@@ -88,9 +112,7 @@ final class RecordingWorkspace {
             metadataError = "\(recording.metadataURL.lastPathComponent) could not be read (\(error.localizedDescription)); changes to speakers and timing will not be saved until it is fixed or removed."
         }
         visibleTranscripts = Set(recording.transcripts.map(\.url))
-        if let saved = try? String(contentsOf: recording.minutesURL, encoding: .utf8) {
-            minutes = saved
-        }
+        reloadMinutes()
     }
 
     var audioStart: Date { metadata.audioStart ?? recording.createdAt }
@@ -141,7 +163,7 @@ final class RecordingWorkspace {
 
     func close() {
         askTask?.cancel()
-        minutesTask?.cancel()
+        // A minutes job is not this workspace's: it goes on.
         retranscribeTask?.cancel()
         player.teardown()
     }
@@ -383,8 +405,61 @@ final class RecordingWorkspace {
         }
     }
 
+    /// What the last split wrote besides `lastExport`.
+    private(set) var lastExportNote: String?
+
+    /// Write two new recordings, one with the microphone track and its
+    /// lines and one with the system track and its lines (2026-11-26):
+    /// the two sides were different conversations. This recording is
+    /// not changed. Each new recording takes that channel's minutes, when
+    /// they were written, as its own.
+    func splitChannels() {
+        guard exportProgress == nil, canSilence else { return }
+        let rec = recording, start = audioStart, meta = metadata, length = duration
+        let silence = self.silence
+        let entriesByFile = placedEntries()
+        exportProgress = 0
+        lastExport = nil
+        lastExportNote = nil
+        Task {
+            do {
+                let results = try await Task.detached(priority: .userInitiated) { () -> [CutExportResult] in
+                    var out: [CutExportResult] = []
+                    for (i, role) in [AudioTrackRole.microphone, .system].enumerated() {
+                        let result = try RecordingCutExporter.extract(
+                            recording: rec, range: nil, onlyRole: role, duration: length,
+                            entriesByTranscript: entriesByFile, audioStart: start, metadata: meta,
+                            silence: silence
+                        ) { p in
+                            Task { @MainActor in
+                                if self.exportProgress != nil { self.exportProgress = (Double(i) + p) / 2 }
+                            }
+                        }
+                        // The channel's minutes describe exactly the copy.
+                        let scope: MinutesScope = role == .microphone ? .microphone : .system
+                        let from = scope.url(for: rec)
+                        let to = result.folder.appendingPathComponent("\(result.recordingStem).minutes.md")
+                        if FileManager.default.fileExists(atPath: from.path), !FileManager.default.fileExists(atPath: to.path) {
+                            try? FileManager.default.copyItem(at: from, to: to)
+                        }
+                        out.append(result)
+                    }
+                    return out
+                }.value
+                lastExport = results.last
+                if let mic = results.first {
+                    lastExportNote = "The microphone side is in \(mic.folder.lastPathComponent)."
+                }
+                onFilesChanged?(nil)
+            } catch {
+                lastError = "Split failed: \(error.localizedDescription)"
+            }
+            exportProgress = nil
+        }
+    }
+
     /// Every transcript's lines as the user sees them placed.
-    private func placedEntries() -> [TranscriptFile: [TranscriptEntry]] {
+    func placedEntries() -> [TranscriptFile: [TranscriptEntry]] {
         var byFile: [TranscriptFile: [TranscriptEntry]] = [:]
         for (file, doc) in documents {
             byFile[file] = doc.entries(audioStart: audioStart, exact: isExact(file), syncOffsetSec: metadata.syncOffsetSec)
@@ -395,6 +470,7 @@ final class RecordingWorkspace {
     private func runExport(_ work: @escaping @Sendable (@escaping (Double) -> Void) throws -> CutExportResult) {
         exportProgress = 0
         lastExport = nil
+        lastExportNote = nil
         Task {
             do {
                 let result = try await Task.detached(priority: .userInitiated) {
@@ -461,41 +537,56 @@ final class RecordingWorkspace {
 
     // MARK: - Minutes
 
+    /// Read the minutes files again (a job just wrote one).
+    func reloadMinutes() {
+        for scope in MinutesScope.allCases {
+            savedMinutes[scope] = (try? String(contentsOf: scope.url(for: recording), encoding: .utf8)) ?? ""
+        }
+    }
+
     func generateMinutes(language: String?) {
-        guard !minutesGenerating else { return }
+        guard let minutesJobs, !minutesGenerating else { return }
+        let scope = minutesScope
+        let lines = minutesEntries
+        guard !lines.isEmpty else { return }
+        let name = scope == .whole ? recording.displayName : "\(recording.displayName) (\(scope.label))"
         let stream: StudioAskStream
         do {
             stream = try StudioAsk.minutes(
-                transcript: transcriptText, recordingName: recording.displayName,
-                recordedAt: audioStart, duration: duration, language: language
+                transcript: StudioAsk.transcriptText(entries: lines, metadata: metadata, duration: duration),
+                recordingName: recording.displayName,
+                recordedAt: audioStart, duration: duration, language: language, scope: scope
             )
         } catch {
             lastError = Self.describe(error)
             return
         }
         askProviderLine = "\(stream.provider.displayName) · \(stream.model)"
-        let previous = minutes
-        minutes = ""
-        minutesGenerating = true
-        minutesTask = Task {
-            do {
-                for try await token in stream.tokens { minutes += token }
-                let now = Date()
-                try StudioNotes.writeMinutes(minutes, provider: stream.provider.rawValue, model: stream.model, generatedAt: now, to: recording.minutesURL)
-                minutes = (try? String(contentsOf: recording.minutesURL, encoding: .utf8)) ?? minutes
-                minutesSavedAt = now
-                onFilesChanged?(nil)
-            } catch is CancellationError {
-                minutes = previous
-            } catch {
-                lastError = "Minutes failed: \(Self.describe(error))"
-                if minutes.isEmpty { minutes = previous }
-            }
-            minutesGenerating = false
-        }
+        minutesJobs.start(
+            id: scope.jobID(recordingID: recording.id), recordingID: recording.id,
+            recordingName: name, minutesURL: scope.url(for: recording),
+            tokens: stream.tokens, provider: stream.provider.rawValue, model: stream.model,
+            describe: { Self.describe($0) }
+        )
     }
 
-    func stopMinutes() { minutesTask?.cancel() }
+    func stopMinutes() { minutesJobs?.stop(minutesScope.jobID(recordingID: recording.id)) }
+    func dismissMinutesError() { minutesJobs?.dismissError(minutesScope.jobID(recordingID: recording.id)) }
+
+    /// Move the shown minutes' file to the Trash (Put Back restores it).
+    func deleteMinutes() {
+        guard !minutesGenerating else { return }
+        let url = minutesURL
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        do {
+            try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+            dismissMinutesError()
+            reloadMinutes()
+            onFilesChanged?(nil)
+        } catch {
+            lastError = "Could not move \(url.lastPathComponent) to the Trash: \(error.localizedDescription)"
+        }
+    }
 
     // MARK: - Re-transcribe
 

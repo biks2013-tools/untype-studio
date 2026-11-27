@@ -74,6 +74,45 @@ or linking the meeting of one recording, wherever its folder is.
 IMPLEMENTED (launched on a real recording folder: one recording listed
 and opened; the error exits were run).
 
+**FR-STU-23** *(2026-11-26, user request.)* — The window shows a
+*Settings* button that opens the Settings window. IMPLEMENTED (seen in
+the toolbar of the running app; not clicked).
+
+**FR-STU-24** *(2026-11-26, user request.)* — Minutes go on being
+written when the user opens another recording, and the minutes of
+several recordings can be written at the same time, each finishing on
+its own without mixing with the others. IMPLEMENTED (`MinutesJobs`,
+unit-tested with interleaved streams, stop and failure; not run against
+a provider from the app).
+
+**FR-STU-25** *(2026-11-26, user request.)* — Minutes can be written
+separately from the microphone's lines and from the system audio's
+lines, next to the minutes of the whole recording, each in its own file.
+IMPLEMENTED (line filtering, files, jobs and the request text are
+unit-tested, `MinutesScopeTests`; not run against a provider).
+
+**FR-STU-26** *(2026-11-26, user request.)* — Minutes can be deleted
+(their file goes to the Trash, after a confirmation). IMPLEMENTED (built,
+not clicked).
+
+**FR-STU-27** *(2026-11-26, user request.)* — A recording whose
+microphone and system tracks hold different conversations can be split
+into two recordings, one per track, each with its lines and that side's
+minutes. IMPLEMENTED (two FR-STU-20 channel copies in one action; the
+copies are unit-tested, the button and the minutes copy were not run).
+
+**FR-STU-28** *(2026-11-26, user request.)* — The cuts can be removed
+from the recording itself, without a new folder (Cut tab: *Cut This
+Recording…*); what is replaced goes to the Trash. IMPLEMENTED (file
+operations unit-tested, `CutInPlaceTests`; the button was built, not
+clicked).
+
+**FR-STU-29** *(2026-11-26, user request.)* — Renaming a recording
+offers two sources next to the free name: its minutes and its linked
+calendar meeting (sidebar context menu, File menu, and inside the Rename
+sheet). Extends FR-STU-21. IMPLEMENTED (on a real recording both menu
+entries were found enabled; the sheet's two buttons were not clicked).
+
 **FR-STU-16** — From the library sidebar (context menu, File menu,
 Delete / Cmd-Delete) the user can rename a recording and move one or
 several recordings to the Trash, without Finder. Rename renames the

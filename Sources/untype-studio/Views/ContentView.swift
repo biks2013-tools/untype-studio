@@ -29,6 +29,14 @@ struct ContentView: View {
                 )
             }
         }
+        .toolbar {
+            // Settings in plain sight (also untype studio > Settings…, ⌘,).
+            ToolbarItem(placement: .primaryAction) {
+                SettingsLink { Label("Settings", systemImage: "gearshape") }
+                    .labelStyle(.titleAndIcon)
+                    .help("Settings: recordings folder, Ask and minutes provider, transcription, echo filter, calendar (⌘,)")
+            }
+        }
         .searchable(text: $library.query, placement: .sidebar, prompt: "Search recordings and transcripts")
         .onAppear {
             PlaybackKeys.player = { library.workspace?.player }

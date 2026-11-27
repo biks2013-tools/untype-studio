@@ -142,9 +142,29 @@ struct MinutesPanel: View {
     @Environment(LibraryStore.self) private var library
     let workspace: RecordingWorkspace
     @AppStorage("studio.minutesLanguage") private var language = ""
+    @State private var confirmingDelete = false
+
+    /// "Mic ●" while that side's minutes exist, "Mic …" while written.
+    private func scopeTitle(_ scope: MinutesScope) -> String {
+        scope.label + (workspace.isMinutesRunning(scope) ? " …" : workspace.hasMinutes(scope) ? " ●" : "")
+    }
 
     var body: some View {
+        @Bindable var workspace = workspace
         VStack(spacing: 0) {
+            if workspace.minutesScopes.count > 1 {
+                HStack {
+                    Picker("Minutes of", selection: $workspace.minutesScope) {
+                        ForEach(workspace.minutesScopes) { scope in Text(scopeTitle(scope)).tag(scope) }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .frame(maxWidth: 280)
+                    .help("Minutes of the whole recording, or of one side alone: what the microphone recorded (you and the room) or the system audio (the other side of the call). Each has its own file; ● marks the ones written.")
+                    Spacer()
+                }
+                .padding([.horizontal, .top], 12)
+            }
             HStack {
                 TextField("Language (blank: as spoken)", text: $language)
                     .textFieldStyle(.roundedBorder)
@@ -159,14 +179,27 @@ struct MinutesPanel: View {
                         workspace.generateMinutes(language: l.isEmpty ? nil : l)
                     }
                     .buttonStyle(.borderedProminent)
-                    .disabled(workspace.entries.isEmpty)
+                    .disabled(workspace.minutesEntries.isEmpty)
                 }
             }
             .padding(12)
             Divider()
+            if let error = workspace.minutesError {
+                HStack(alignment: .top) {
+                    Label(error, systemImage: "exclamationmark.triangle")
+                        .font(.callout).foregroundStyle(.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer()
+                    Button("Dismiss") { workspace.dismissMinutesError() }.controlSize(.small)
+                }
+                .padding(10)
+                Divider()
+            }
             ScrollView {
                 if workspace.minutes.isEmpty && !workspace.minutesGenerating {
-                    Text("Minutes summarise the meeting: topics, decisions, action items and open questions, each linked to the moment it was said. They are saved to \(workspace.recording.minutesURL.lastPathComponent).")
+                    Text(workspace.minutesScope == .whole
+                         ? "Minutes summarise the meeting: topics, decisions, action items and open questions, each linked to the moment it was said. They are saved to \(workspace.minutesURL.lastPathComponent)."
+                         : "Minutes of the \(workspace.minutesScope == .microphone ? "microphone" : "system audio") side alone (\(workspace.minutesEntries.count) lines). If the two sides read like different conversations, Cut ▸ Tracks ▸ Split into Two Recordings writes each side as a recording of its own. They are saved to \(workspace.minutesURL.lastPathComponent).")
                         .foregroundStyle(.secondary)
                         .padding(12)
                 } else {
@@ -180,9 +213,11 @@ struct MinutesPanel: View {
                         NSPasteboard.general.clearContents()
                         NSPasteboard.general.setString(workspace.minutes, forType: .string)
                     }
-                    if FileManager.default.fileExists(atPath: workspace.recording.minutesURL.path) {
-                        Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([workspace.recording.minutesURL]) }
-                        Button("Open") { NSWorkspace.shared.open(workspace.recording.minutesURL) }
+                    if FileManager.default.fileExists(atPath: workspace.minutesURL.path) {
+                        Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([workspace.minutesURL]) }
+                        Button("Open") { NSWorkspace.shared.open(workspace.minutesURL) }
+                        Button("Delete…", role: .destructive) { confirmingDelete = true }
+                            .help("Move these minutes (\(workspace.minutesURL.lastPathComponent)) to the Trash")
                     }
                     Spacer()
                     if let title = RecordingNaming.minutesTitle(workspace.minutes) {
@@ -194,6 +229,18 @@ struct MinutesPanel: View {
                 }
                 .padding(10)
             }
+        }
+        .onChange(of: workspace.minutesScopes) { _, scopes in
+            if !scopes.contains(workspace.minutesScope) { workspace.minutesScope = .whole }
+        }
+        .confirmationDialog(
+            "Delete these minutes?",
+            isPresented: $confirmingDelete, titleVisibility: .visible
+        ) {
+            Button("Move to Trash", role: .destructive) { workspace.deleteMinutes() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("\(workspace.minutesURL.lastPathComponent) goes to the Trash. Finder's Put Back restores it.")
         }
     }
 }
@@ -266,14 +313,15 @@ struct CutPanel: View {
     let workspace: RecordingWorkspace
     /// The track "Remove from This Recording" is asking about.
     @State private var trackToRemove: AudioTrackRole?
+    @State private var confirmCutInPlace = false
 
     var body: some View {
         let long = workspace.duration >= 3600
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 Text(workspace.canSilence
-                     ? "Drag across the waveform (or use a line's menu) to select a range, then add it as a cut, make a new recording from it — or, dragged on the Mic or System lane, silence it on that channel only, to take out a noise heard on one side. Export writes a new copy without the cuts (transcript times shifted to match), with the silenced ranges silent, and optionally with the echo removed from the microphone. The original changes only with Remove from This Recording and Write to This Recording; what they replace goes to the Trash."
-                     : "Drag across the waveform (or use a line's menu) to select a range, then add it as a cut. Export writes a new copy without the cuts, transcript times shifted to match, and optionally with the echo removed from the microphone. The original is never changed.")
+                     ? "Drag across the waveform (or use a line's menu) to select a range, then add it as a cut, make a new recording from it — or, dragged on the Mic or System lane, silence it on that channel only, to take out a noise heard on one side. Export writes a new copy without the cuts (transcript times shifted to match), with the silenced ranges silent, and optionally with the echo removed from the microphone. The original changes only with Cut This Recording, Remove from This Recording and Write to This Recording; what they replace goes to the Trash."
+                     : "Drag across the waveform (or use a line's menu) to select a range, then add it as a cut. Export writes a new copy without the cuts, transcript times shifted to match, and optionally with the echo removed from the microphone. The original changes only with Cut This Recording; what it replaces goes to the Trash.")
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
@@ -364,6 +412,13 @@ struct CutPanel: View {
                             }
                             .disabled(workspace.exportProgress != nil)
                             HStack {
+                                Text("Two conversations").foregroundStyle(.secondary)
+                                Button("Split into Two Recordings") { workspace.splitChannels() }
+                                    .help("Write two new recordings: one with the microphone track and its transcript lines, one with the system track and its lines. Each takes that side's minutes, when written. This recording is not changed.")
+                                Spacer()
+                            }
+                            .disabled(workspace.exportProgress != nil)
+                            HStack {
                                 Text("Remove from this recording").foregroundStyle(.secondary)
                                 ForEach([AudioTrackRole.microphone, .system], id: \.self) { role in
                                     Button(role == .microphone ? "Mic…" : "System…", role: .destructive) { trackToRemove = role }
@@ -396,6 +451,9 @@ struct CutPanel: View {
                     } else {
                         Button("Clear Cuts") { workspace.clearCuts() }.disabled(workspace.cuts.isEmpty)
                         Spacer()
+                        Button("Cut This Recording…", role: .destructive) { confirmCutInPlace = true }
+                            .disabled(workspace.cuts.isEmpty || library.jobProgress != nil)
+                            .help("Remove the cuts from this recording itself, without a copy; the files as they are now go to the Trash")
                         Button("Export Copy") { workspace.exportCut() }
                             .buttonStyle(.borderedProminent)
                             .disabled(!workspace.hasEdits)
@@ -408,6 +466,9 @@ struct CutPanel: View {
                             Label("Saved \(r.folder.lastPathComponent)", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
                             Text(exportSummary(r))
                                 .font(.callout).foregroundStyle(.secondary)
+                            if let note = workspace.lastExportNote {
+                                Text(note).font(.callout).foregroundStyle(.secondary)
+                            }
                             HStack {
                                 Button("Open the Copy") { library.reveal(folder: r.folder) }
                                 Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([r.folder]) }
@@ -419,6 +480,14 @@ struct CutPanel: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(12)
+        }
+        .confirmationDialog("Remove the cuts from this recording?", isPresented: $confirmCutInPlace, titleVisibility: .visible) {
+            Button("Cut This Recording", role: .destructive) {
+                Task { await library.applyCuts(of: workspace) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The audio is rewritten without the \(workspace.cuts.count == 1 ? "cut" : "\(workspace.cuts.count) cuts") (\(StudioAsk.timecode(workspace.cutPlan.removedDuration, longForm: true)) removed)\(workspace.silence.isEmpty ? "" : ", with the silenced ranges silent,") and the transcripts are re-timed. No new folder is made. The audio, transcripts and studio.json as they are now go to the Trash (Finder's Put Back restores them, once the new files are moved away). Minutes and saved answers are kept, but their timecodes will no longer match.")
         }
         .confirmationDialog(
             "Remove the \(trackToRemove == .microphone ? "microphone" : "system") track from this recording?",

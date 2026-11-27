@@ -34,6 +34,10 @@ struct UntypeStudioApp: App {
                 Divider()
                 Button("Rename Recording…") { library.requestRename() }
                     .disabled(library.selection.count != 1)
+                Button("Rename After Minutes…") { library.requestRename(from: .minutes) }
+                    .disabled(!library.canRename(from: .minutes))
+                Button("Rename After Linked Meeting…") { library.requestRename(from: .meeting) }
+                    .disabled(!library.canRename(from: .meeting))
                 Button("Remove Echo into a Copy") { library.removeEchoIntoCopy() }
                     .disabled(!library.canRemoveEcho())
                 Button("Move to Trash") { library.requestTrash() }
@@ -78,6 +82,21 @@ final class StudioAppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate()
         PlaybackKeys.install()
+    }
+
+    /// Quitting (also by closing the window) would drop minutes that are
+    /// still being written: ask first. (2026-11-26)
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        let running = LibraryStore.current?.minutesJobs.running ?? []
+        guard !running.isEmpty else { return .terminateNow }
+        let alert = NSAlert()
+        alert.messageText = running.count == 1
+            ? "The minutes of “\(running[0].recordingName)” are still being written."
+            : "The minutes of \(running.count) recordings are still being written."
+        alert.informativeText = "Quitting now stops them; nothing is saved for them, and minutes written earlier stay as they are."
+        alert.addButton(withTitle: "Keep Running")
+        alert.addButton(withTitle: "Quit Anyway")
+        return alert.runModal() == .alertSecondButtonReturn ? .terminateNow : .terminateCancel
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }

@@ -153,19 +153,32 @@ public enum StudioAsk {
         )
     }
 
-    /// Generate minutes.
+    /// The user turn of a minutes request.
+    static func minutesUserText(
+        transcript: String, recordingName: String, recordedAt: Date, duration: Double,
+        language: String?, scope: MinutesScope
+    ) -> String {
+        var user = header(recordingName: recordingName, recordedAt: recordedAt, duration: duration)
+        user += "\n\n<transcript>\n\(transcript)\n</transcript>\n\n"
+        if let note = scope.promptNote { user += note + "\n\n" }
+        user += minutesInstruction(language: language)
+        return user
+    }
+
+    /// Generate minutes (of the whole transcript given; `scope` says
+    /// which side of the recording it is).
     public static func minutes(
         transcript: String,
         recordingName: String,
         recordedAt: Date,
         duration: Double,
         language: String?,
+        scope: MinutesScope = .whole,
         env: [String: String] = ProcessInfo.processInfo.environment
     ) throws -> StudioAskStream {
         let config = try AskConfigResolver.resolve(env: env)
-        var user = header(recordingName: recordingName, recordedAt: recordedAt, duration: duration)
-        user += "\n\n<transcript>\n\(transcript)\n</transcript>\n\n"
-        user += minutesInstruction(language: language)
+        let user = minutesUserText(transcript: transcript, recordingName: recordingName,
+                                   recordedAt: recordedAt, duration: duration, language: language, scope: scope)
         let client = AskClientFactory.make(config: config)
         return StudioAskStream(
             tokens: client.streamChat(system: minutesSystemPrompt, user: user),

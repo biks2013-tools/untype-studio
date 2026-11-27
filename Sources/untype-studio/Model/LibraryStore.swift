@@ -78,11 +78,25 @@ final class LibraryStore {
         return parts.count >= 2 ? parts : []
     }
 
+    /// Minutes being written, per recording; they outlive the open
+    /// recording's workspace. (2026-11-26)
+    let minutesJobs = MinutesJobs()
+
     @ObservationIgnored private let index = TranscriptSearchIndex()
     @ObservationIgnored private var searchTask: Task<Void, Never>?
     @ObservationIgnored private var pendingSeek: (id: String, time: Double, transcript: URL?)?
 
+    /// The app's one library (for the app delegate's quit check).
+    static weak var current: LibraryStore?
+
     init() {
+        Self.current = self
+        minutesJobs.onFinished = { [weak self] job, saved in
+            guard let self, saved else { return }
+            if let ws = self.workspace, ws.recording.id == job.recordingID { ws.reloadMinutes() }
+            // The sidebar's "has minutes" mark.
+            Task { await self.rescan() }
+        }
         if let folder = Self.launchFolder {
             root = folder.deletingLastPathComponent()
             focusFolders = [folder]
@@ -193,6 +207,7 @@ final class LibraryStore {
         workspace = nil
         guard let id = selectedID, let rec = recordings.first(where: { $0.id == id }) else { return }
         let ws = RecordingWorkspace(recording: rec)
+        ws.minutesJobs = minutesJobs
         ws.onFilesChanged = { [weak self, weak ws] showOnly in
             guard let self, let ws else { return }
             self.filesChanged(in: ws, showOnly: showOnly)
@@ -264,6 +279,62 @@ final class LibraryStore {
         RecordingNaming.name(title: title, currentName: renameName(of: recording), start: start)
     }
 
+    /// Where a name for a recording can be taken from.
+    enum RenameSource: String, CaseIterable {
+        case minutes, meeting
+
+        var menuTitle: String {
+            switch self {
+            case .minutes: return "Rename After Minutes…"
+            case .meeting: return "Rename After Linked Meeting…"
+            }
+        }
+    }
+
+    /// The title `source` gives `recording`, read from its files: the
+    /// first heading of its minutes (of the whole recording; else of the
+    /// microphone side, else of the system side), or the subject of the
+    /// meeting saved in its `studio.json`. `nil` when there is none.
+    func renameTitle(of recording: Recording, from source: RenameSource) -> String? {
+        switch source {
+        case .minutes:
+            for scope in MinutesScope.allCases {
+                if let text = try? String(contentsOf: scope.url(for: recording), encoding: .utf8),
+                   let title = RecordingNaming.minutesTitle(text) { return title }
+            }
+            return nil
+        case .meeting:
+            let subject = (try? StudioMetadata.load(from: recording.metadataURL))?.meeting?.subject
+            return subject.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
+        }
+    }
+
+    /// The name `source` proposes for `recording` (see `RecordingNaming`).
+    func renameProposal(for recording: Recording, from source: RenameSource) -> String? {
+        guard let title = renameTitle(of: recording, from: source) else { return nil }
+        let start = (try? StudioMetadata.load(from: recording.metadataURL))?.audioStart ?? recording.createdAt
+        return name(of: recording, after: title, start: start)
+    }
+
+    /// The one recording of `ids` (the selection by default).
+    func single(_ ids: Set<String>? = nil) -> Recording? {
+        let ids = ids ?? selection
+        guard ids.count == 1 else { return nil }
+        return recordings.first { ids.contains($0.id) }
+    }
+
+    func canRename(_ ids: Set<String>? = nil, from source: RenameSource) -> Bool {
+single(ids).map { renameTitle(of: $0, from: source) != nil } ?? false
+    }
+
+    /// Open the rename sheet with the name `source` proposes filled in
+    /// (menu, context menu).
+    func requestRename(_ ids: Set<String>? = nil, from source: RenameSource) {
+        guard let rec = single(ids), let proposed = renameProposal(for: rec, from: source) else { return }
+        renameSuggestion = proposed
+        renameRequest = rec
+    }
+
     /// Open the rename sheet for `recording` with the name it would take
     /// after `title` filled in; the user confirms or edits it.
     func requestRename(_ recording: Recording, after title: String, start: Date) {
@@ -308,6 +379,9 @@ final class LibraryStore {
     /// Returns why it could not, or nil when it was renamed.
     func rename(_ recording: Recording, to name: String) async -> String? {
         guard let root else { return "No library folder is chosen." }
+        var movesFolder = false
+        if case .folder = RecordingFileOps.renameTarget(recording, libraryRoot: root) { movesFolder = true }
+        if let busy = minutesBusy(recording, movesFolder: movesFolder) { return busy }
         let wasSelected = selection.contains(recording.id)
         let wasOpen = workspace?.recording.id == recording.id
         // The open recording's player holds its files.
@@ -329,9 +403,31 @@ final class LibraryStore {
         }
     }
 
+    /// Why `recording` can't be renamed or trashed right now: its
+    /// minutes are being written, or the operation moves its folder
+    /// (`movesFolder`) while minutes of a recording in it are. The job
+    /// holds the path of the file it will write. Other recordings of a
+    /// shared folder are not held up.
+    func minutesBusy(_ recording: Recording, movesFolder: Bool) -> String? {
+        let job: MinutesJob?
+        if let own = minutesJobs.jobs(ofRecording: recording.id).first(where: \.isRunning) {
+            job = own
+        } else {
+            job = movesFolder ? minutesJobs.runningJob(inFolder: recording.folder) : nil
+        }
+        guard let job else { return nil }
+        return "The minutes of “\(job.recordingName)” are being written. Wait for them to finish, or stop them, first."
+    }
+
     /// Move recordings to the Trash (Finder's Put Back restores them).
     func moveToTrash(_ recs: [Recording]) async {
         guard let root, !recs.isEmpty else { return }
+        if let busy = recs.compactMap({ rec in
+            minutesBusy(rec, movesFolder: RecordingFileOps.trashItems(rec, libraryRoot: root) == [rec.folder])
+        }).first {
+            fileOpError = busy
+            return
+        }
         let ids = Set(recs.map(\.id))
         if let open = workspace?.recording.id, ids.contains(open) { selection = [] }
         selection.subtract(ids)
@@ -424,6 +520,38 @@ final class LibraryStore {
         jobProgress = nil
         await rescan()
         if wasOpen, recordings.contains(where: { $0.id == rec.id }) { selection = [rec.id] }
+    }
+
+    /// Remove the cuts of the open recording from the recording itself
+    /// (`RecordingCutExporter.applyInPlace`), then reopen it. The open
+    /// recording is closed first: its player holds the files.
+    func applyCuts(of ws: RecordingWorkspace) async {
+        let rec = ws.recording
+        guard let root, jobProgress == nil, !ws.cuts.isEmpty else { return }
+        if let busy = minutesBusy(rec, movesFolder: false) {
+            fileOpError = busy
+            return
+        }
+        let plan = ws.cutPlan, entries = ws.placedEntries(), start = ws.audioStart
+        let meta = ws.metadata, silence = ws.silence
+        selection = []
+        jobProgress = 0
+        jobLabel = "Removing the cuts from \(rec.displayName)"
+        do {
+            _ = try await Task.detached(priority: .userInitiated) {
+                try RecordingCutExporter.applyInPlace(
+                    recording: rec, plan: plan, entriesByTranscript: entries, audioStart: start,
+                    metadata: meta, silence: silence, libraryRoot: root
+                ) { p in
+                    Task { @MainActor in if self.jobProgress != nil { self.jobProgress = p } }
+                }
+            }.value
+        } catch {
+            fileOpError = "Removing the cuts failed: \(error.localizedDescription)"
+        }
+        jobProgress = nil
+        await rescan()
+        if recordings.contains(where: { $0.id == rec.id }) { selection = [rec.id] }
     }
 
     // MARK: - Join

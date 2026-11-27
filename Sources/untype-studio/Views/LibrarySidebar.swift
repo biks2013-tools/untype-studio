@@ -60,6 +60,10 @@ struct LibrarySidebar: View {
             if !ids.isEmpty {
                 Button("Rename…") { library.requestRename(ids) }
                     .disabled(ids.count != 1)
+                ForEach(LibraryStore.RenameSource.allCases, id: \.self) { source in
+                    Button(source.menuTitle) { library.requestRename(ids, from: source) }
+                        .disabled(!library.canRename(ids, from: source))
+                }
                 Button("Show in Finder") { library.revealInFinder(ids) }
                 Divider()
                 Button("Remove Echo into a Copy") { library.removeEchoIntoCopy(ids) }
@@ -171,6 +175,17 @@ struct RenameRecordingSheet: View {
                 .frame(minWidth: 360)
                 .focused($focused)
                 .onSubmit(save)
+            HStack(spacing: 8) {
+                Text("Name it after").font(.callout).foregroundStyle(.secondary)
+                Button("Minutes") { use(.minutes) }
+                    .disabled(proposals[.minutes] == nil)
+                    .help(proposals[.minutes].map { "Use “\($0)”" } ?? "This recording has no minutes with a title")
+                Button("Linked Meeting") { use(.meeting) }
+                    .disabled(proposals[.meeting] == nil)
+                    .help(proposals[.meeting].map { "Use “\($0)”" } ?? "This recording is not linked to a calendar meeting (Info ▸ Meeting)")
+                Spacer()
+            }
+            .controlSize(.small)
             Text(note).font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             if let error {
@@ -189,11 +204,22 @@ struct RenameRecordingSheet: View {
         .padding(20)
         .onAppear {
             name = library.renameSuggestion ?? library.renameName(of: recording)
+            for source in LibraryStore.RenameSource.allCases {
+                proposals[source] = library.renameProposal(for: recording, from: source)
+            }
             focused = true
         }
     }
 
     private var trimmed: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    /// The names the minutes and the linked meeting propose, read once.
+    @State private var proposals: [LibraryStore.RenameSource: String] = [:]
+
+    private func use(_ source: LibraryStore.RenameSource) {
+        if let proposed = proposals[source] { name = proposed }
+        focused = true
+    }
 
     private var note: String {
         if library.renameRenamesSession(recording) {
@@ -217,6 +243,7 @@ struct RenameRecordingSheet: View {
 }
 
 struct RecordingRow: View {
+    @Environment(LibraryStore.self) private var library
     let recording: Recording
 
     var body: some View {
@@ -233,6 +260,16 @@ struct RecordingRow: View {
                 }
                 if recording.attachments.contains(where: { $0.lastPathComponent.hasSuffix(".minutes.md") }) {
                     Image(systemName: "list.bullet.clipboard").help("Has minutes")
+                }
+                let jobs = library.minutesJobs.jobs(ofRecording: recording.id)
+                if !jobs.isEmpty {
+                    if jobs.contains(where: \.isRunning) {
+                        ProgressView().controlSize(.mini).help("Minutes are being written")
+                        Text("minutes…")
+                    } else {
+                        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
+                            .help("Writing the minutes failed (see the Minutes tab)")
+                    }
                 }
             }
             .font(.caption)
