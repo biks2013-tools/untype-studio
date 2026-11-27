@@ -4,6 +4,12 @@
 
 ## Pending items (most critical first)
 
+### Public repository: private traces left in the git history (2026-11-27)
+- An audit of HEAD and all history (9 commits, tags v0.8.0/v0.9.0, the release zip) found no secrets, recordings or transcripts. At HEAD, commit `b02d46e` replaced: an Azure OpenAI resource host named in a comment (`RealtimeWireTypes.swift`), real-looking meeting and client names in `RecordingNamingTests.swift` and `RecordingNaming.swift`, and a person's first name in a recording name here.
+- **Still in the history** (commits `a48a3f5`, `dd3cdc7`, `24a8f7e`): those same strings, and the signing certificate's SHA-1 (public in any signed app anyway). Removing them needs a history rewrite (`git filter-repo --replace-text`) and a force-push of `main` and the tags; not done, it is the user's decision.
+- **Commit author email**: every commit carries the owner's personal address (readable in the public log). Remedy: commit with the GitHub noreply address from now on; changing old commits needs the same rewrite.
+- `MeetingMatcher.ignoredWords` holds the employer's acronym (matching works better with it); left as is, the user decides.
+
 ### Video digests from untype in the library — open items (2026-11-27)
 - **Digests made on the iPhone have no audio** until the Mac resumes them, so they are not recordings and do not show in the library.
 - **iCloud files not downloaded** (Optimize Mac Storage) show as `.icloud` placeholders and are skipped until downloaded.
@@ -65,6 +71,7 @@
 - **Unset suppression now means high in the studio; ntakker's own copy of the Settings pane still shows Off** when `NTAKKER_STUDIO_ECHO_SUPPRESSION` is unset. Carry the one-line change (`SharedCorePanes.swift`) to ntakker, or it is lost when the vendored folders are copied again.
 
 ### Split from ntakker — open items (2026-11-20)
+- **Released 2026-11-27 as v0.9.1** (self-update, FR-STU-32; notarized, app and DMG Accepted; 90 tests): GitHub release marked latest, zip downloaded back and checked (`52df85e8…`); cask 0.9.1 (tap `fb47bd4`). Installed on the development Mac from the release zip, replacing the ad-hoc redeploy (previous copy kept in the session scratchpad). From now on `scripts/redeploy-untype-studio.sh` installs an ad-hoc copy that cannot update itself and changes the app's signature for macOS permissions (Calendar): use releases on this Mac. The update path itself is first exercised by the next release (0.9.2).
 - **Released 2026-11-27 as v0.9.0** (Developer ID signed, notarized, app and DMG Accepted; `scripts/release.sh`, 84 tests, no failures): GitHub release on `biks2013-tools/untype-studio` marked latest, zip downloaded back and checked (`905d1ff9…`); cask `untype-studio` 0.9.0 published through untype's tap folder (tap `972992b`). Includes FR-STU-23..31; of these only FR-STU-30/31 were looked at by the user.
 - **Released 2026-11-22 as v0.8.0** (Developer ID signed, notarized): GitHub release on `biks2013-tools/untype-studio`, cask `untype-studio` in the tap `biks2013-tools/homebrew-untype`. Signed with the Developer ID identity `2C7D…DF30` (the one `untype.app` uses) and the notarytool profile `untype-notary`. Installing with `brew install --cask` was not tried.
 - **Two copies of the studio exist.** `ntakker-studio` is still in the ntakker repository (and in /Applications if installed). Both apps open the same library and write the same per-recording files. Decide when to retire `ntakker-studio` there (source, cask, docs).
