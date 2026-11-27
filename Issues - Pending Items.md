@@ -5,8 +5,6 @@
 ## Pending items (most critical first)
 
 ### Video digests from untype in the library — open items (2026-11-27)
-- **Not looked at in the app yet**: the library with the `Videos` link (on this Mac `~/Recordings/Videos` → iCloud Drive/untype/Videos) and a digest's HTML opened from the attachments.
-- **Meetings / Videos switch (FR-STU-31) not looked at in the app yet**: the sidebar's switch, its counts, and search limited to the list shown.
 - **Digests made on the iPhone have no audio** until the Mac resumes them, so they are not recordings and do not show in the library.
 - **iCloud files not downloaded** (Optimize Mac Storage) show as `.icloud` placeholders and are skipped until downloaded.
 
@@ -67,6 +65,7 @@
 - **Unset suppression now means high in the studio; ntakker's own copy of the Settings pane still shows Off** when `NTAKKER_STUDIO_ECHO_SUPPRESSION` is unset. Carry the one-line change (`SharedCorePanes.swift`) to ntakker, or it is lost when the vendored folders are copied again.
 
 ### Split from ntakker — open items (2026-11-20)
+- **Released 2026-11-27 as v0.9.0** (Developer ID signed, notarized, app and DMG Accepted; `scripts/release.sh`, 84 tests, no failures): GitHub release on `biks2013-tools/untype-studio` marked latest, zip downloaded back and checked (`905d1ff9…`); cask `untype-studio` 0.9.0 published through untype's tap folder (tap `972992b`). Includes FR-STU-23..31; of these only FR-STU-30/31 were looked at by the user.
 - **Released 2026-11-22 as v0.8.0** (Developer ID signed, notarized): GitHub release on `biks2013-tools/untype-studio`, cask `untype-studio` in the tap `biks2013-tools/homebrew-untype`. Signed with the Developer ID identity `2C7D…DF30` (the one `untype.app` uses) and the notarytool profile `untype-notary`. Installing with `brew install --cask` was not tried.
 - **Two copies of the studio exist.** `ntakker-studio` is still in the ntakker repository (and in /Applications if installed). Both apps open the same library and write the same per-recording files. Decide when to retire `ntakker-studio` there (source, cask, docs).
 - **The engine is a vendored copy.** `Sources/NtakkerCore` and `Sources/NtakkerSettingsUI` were copied from ntakker on 2026-11-20 and will drift: a provider or settings change in ntakker reaches the studio only when the folders are copied again. `NtakkerCore`'s tests were not copied. The recorder half of `NtakkerCore` (capture, encoders, session) is compiled but unused here and could be removed.
