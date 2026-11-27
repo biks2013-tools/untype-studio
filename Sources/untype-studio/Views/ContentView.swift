@@ -83,6 +83,7 @@ struct StudioGeneralSettingsPane: View {
                 Text("Dark or light for every studio window. System follows your macOS appearance.")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            StudioUpdateSettingsSection(model: StudioUpdateModel.shared)
         }
         .formStyle(.grouped)
     }

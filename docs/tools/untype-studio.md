@@ -771,6 +771,12 @@
         684.7 s and 1402.7 s of the joined track with zero shift
         (envelope correlation 1.0).
 
+        ## Updates
+
+        From 0.9.1 the studio updates itself (FR-STU-32). It reads `https://api.github.com/repos/biks2013-tools/untype-studio/releases/latest` 30 s after it starts and every 6 hours, and offers a newer version in a small window (once per version and start; never while minutes are written or a copy, cut or join is made). **Install and Restart** downloads `untype-studio-<version>.zip` from the release, checks its SHA-256 against the release's `SHA256SUMS` and its signature against the running app's designated requirement (same Developer ID team and bundle id), swaps it in place of the app and reopens it; the log is `~/.tool-agents/untype-studio/update.log`. Settings ▸ General ▸ Updates turns the automatic look off and has **Check Now**; the app menu has **Check for Updates…**.
+
+        Only a Developer ID signed copy can update itself: a copy installed by `scripts/redeploy-untype-studio.sh` is ad-hoc signed, so no release satisfies its requirement, and Settings says so. A release therefore needs, on GitHub, the stapled zip under exactly the name `untype-studio-<version>.zip` and `SHA256SUMS` (what `scripts/release.sh` writes), and the tag `v<version>` marked latest.
+
         ## Releasing
 
         A public release is Developer ID signed with the hardened runtime and notarized by Apple.

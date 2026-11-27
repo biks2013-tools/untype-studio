@@ -132,6 +132,24 @@ search (names and transcript lines) and the footer count follow it, and a
 recording opened from elsewhere switches to its own list. IMPLEMENTED
 (scanner unit-tested; not yet looked at by the user).
 
+**FR-STU-32** *(2026-11-27, user request.)* — untype studio updates
+itself from its GitHub releases (`biks2013-tools/untype-studio`,
+`releases/latest`), as untype does: it looks 30 s after it starts and
+every 6 hours (Settings ▸ General ▸ Updates: *Look for new versions
+automatically*, on by default; **Check Now**; also untype studio ▸ Check
+for Updates…), and offers a newer version once per version and start
+with what changed (**Install and Restart**, **Later**, **Skip This
+Version**, **Release Page**), never while minutes are written or a copy,
+cut or join is made. Installing downloads the release's notarized
+`untype-studio-<version>.zip`, checks its SHA-256 against the release's
+`SHA256SUMS` and its signature against the running app's own designated
+requirement, checks it is newer, puts it in the place of the app (the old
+one comes back on failure; log `~/.tool-agents/untype-studio/update.log`)
+and opens it. The request carries nothing about the user (User-Agent
+`untype-studio-updater`). A locally built (ad-hoc signed) copy cannot
+update itself and says so. IMPLEMENTED (unit-tested: versions, release
+parsing, checksums, policy, swap script).
+
 **FR-STU-16** — From the library sidebar (context menu, File menu,
 Delete / Cmd-Delete) the user can rename a recording and move one or
 several recordings to the Trash, without Finder. Rename renames the

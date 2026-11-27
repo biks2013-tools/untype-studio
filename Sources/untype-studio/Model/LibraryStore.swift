@@ -584,6 +584,8 @@ single(ids).map { renameTitle(of: $0, from: source) != nil } ?? false
     private(set) var joinPlanError: String?
     private(set) var joinPreparing = false
     private(set) var joinProgress: Double?
+    /// A copy, cut or join is being written (no update is installed then).
+    var isBusyWithFiles: Bool { jobProgress != nil || joinProgress != nil }
     private(set) var joinError: String?
     @ObservationIgnored private var joinPrepareTask: Task<Void, Never>?
 

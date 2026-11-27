@@ -44,6 +44,9 @@ struct UntypeStudioApp: App {
                     .keyboardShortcut(.delete, modifiers: .command)
                     .disabled(library.selection.isEmpty)
             }
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates…") { StudioUpdateModel.shared.check(userAsked: true) }
+            }
             CommandGroup(after: .toolbar) {
                 StudioAppearancePicker()
             }
@@ -82,6 +85,16 @@ final class StudioAppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate()
         PlaybackKeys.install()
+        // FR-STU-32: look for a newer release; nothing is installed while
+        // minutes are written or a copy is made.
+        let updates = StudioUpdateModel.shared
+        updates.busyReason = {
+            guard let library = LibraryStore.current else { return nil }
+            if !library.minutesJobs.running.isEmpty { return "Minutes are being written." }
+            if library.isBusyWithFiles { return "A recording is being copied, cut or joined." }
+            return nil
+        }
+        updates.start()
     }
 
     /// Quitting (also by closing the window) would drop minutes that are
