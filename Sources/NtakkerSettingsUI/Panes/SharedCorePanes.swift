@@ -199,10 +199,17 @@ public struct StudioSettingsPane: View {
                     placeholder: "/full/path/m365mail calendar export --from {from} --to {to} --no-description",
                     helpText: "A command line that prints your calendar as JSON. {from} and {to} are replaced by the first and last day (YYYY-MM-DD). Give the program's full path: apps started from the Dock do not see your shell's PATH. Used by the studio to find the meeting a recording is (Info ▸ Meeting, and `untype-studio match-meetings`)."
                 )
+                SettingsTextRow(
+                    label: "Words to ignore",
+                    envVarName: SharedSettings.Keys.calendarIgnoredWords,
+                    placeholder: "acme, bank, prep",
+                    helpText: "Words of your recording names that say nothing about which meeting it was, separated by commas: your company's name, a team's, prep or test. A word of the name that is also in a meeting's subject counts towards that meeting, so these would match the wrong one. The studio itself already ignores the words untype puts in file names (recording, meeting, call, copy, clean, …), dates and words shorter than three letters."
+                )
             }
             Section {
                 SharedFileFootnote(keys: [SharedSettings.Keys.studioEchoStrength, SharedSettings.Keys.studioEchoSuppression,
-                                          SharedSettings.Keys.studioEchoAdaptation, SharedSettings.Keys.calendarCommand])
+                                          SharedSettings.Keys.studioEchoAdaptation, SharedSettings.Keys.calendarCommand,
+                                          SharedSettings.Keys.calendarIgnoredWords])
             }
         }
         .formStyle(.grouped)

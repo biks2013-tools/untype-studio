@@ -29,10 +29,15 @@ if [[ ! -f "${PLIST_SRC}" ]]; then
   exit 1
 fi
 
-echo "==> swift build -c ${CONFIG} (this may take a minute)"
-swift build -c "${CONFIG}" --product "${APP_NAME}"
+# Source paths compiled into the binary (#file, #filePath, assertions) are
+# written relative to the repository and the home folder, so the released
+# app does not carry the builder's home path.
+PATH_MAP=(-Xswiftc -file-prefix-map -Xswiftc "${REPO_ROOT}=." -Xswiftc -file-prefix-map -Xswiftc "${HOME}=~")
 
-BIN_PATH="$(swift build -c "${CONFIG}" --show-bin-path)/${APP_NAME}"
+echo "==> swift build -c ${CONFIG} (this may take a minute)"
+swift build -c "${CONFIG}" --product "${APP_NAME}" "${PATH_MAP[@]}"
+
+BIN_PATH="$(swift build -c "${CONFIG}" --show-bin-path "${PATH_MAP[@]}")/${APP_NAME}"
 if [[ ! -x "${BIN_PATH}" ]]; then
   echo "error: built binary not found at ${BIN_PATH}" >&2
   exit 1

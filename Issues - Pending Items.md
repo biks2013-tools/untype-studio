@@ -4,11 +4,9 @@
 
 ## Pending items (most critical first)
 
-### Public repository: private traces left in the git history (2026-11-27)
-- An audit of HEAD and all history (9 commits, tags v0.8.0/v0.9.0, the release zip) found no secrets, recordings or transcripts. At HEAD, commit `b02d46e` replaced: an Azure OpenAI resource host named in a comment (`RealtimeWireTypes.swift`), real-looking meeting and client names in `RecordingNamingTests.swift` and `RecordingNaming.swift`, and a person's first name in a recording name here.
-- **Still in the history** (commits `a48a3f5`, `dd3cdc7`, `24a8f7e`): those same strings, and the signing certificate's SHA-1 (public in any signed app anyway). Removing them needs a history rewrite (`git filter-repo --replace-text`) and a force-push of `main` and the tags; not done, it is the user's decision.
-- **Commit author email**: every commit carries the owner's personal address (readable in the public log). Remedy: commit with the GitHub noreply address from now on; changing old commits needs the same rewrite.
-- `MeetingMatcher.ignoredWords` holds the employer's acronym (matching works better with it); left as is, the user decides.
+### Repository private: updates and the Homebrew cask cannot reach the releases (2026-11-28)
+- The studio's updater asks `api.github.com/…/releases/latest` without credentials, and the cask downloads the release zip the same way; both fail (404) while `biks2013-tools/untype-studio` is private. Installed copies keep working; they just see no new versions.
+- 2026-11-28: the old repository (with the rewritten commits still reachable on GitHub) was renamed `untype-studio-archived` and kept private; `biks2013-tools/untype-studio` was created again from the clean `main` and tags only, so it can be made public without them. The release 0.9.1 was published again there with the same files.
 
 ### Video digests from untype in the library — open items (2026-11-27)
 - **Digests made on the iPhone have no audio** until the Mac resumes them, so they are not recordings and do not show in the library.
@@ -114,6 +112,14 @@
 - SRT / VTT / TXT sidecars are not read; JSONL is the source.
 
 ## Completed items
+
+### Private traces removed from the git history (2026-11-27 → 2026-11-28)
+- **Issue:** the public repository held an Azure OpenAI resource host (a code comment), real meeting and client names in tests and comments, a person's first name in a recording name, two calendar subjects in the house style of the employer in `CalendarMatchTests.swift`, and the employer's acronym in the matcher's ignored words — at HEAD and in every older commit and tag.
+- **Fix:** HEAD cleaned in the 0.9.1 commit; the user made the repository private (2026-11-28) and asked for the names to go from the history too. `git filter-repo --replace-text` in a fresh clone (backup bundle kept outside the repo) turned each old string into the made-up one HEAD uses; the rewrite changed nothing else (HEAD differed only in the acronym line and the two subjects; same 12 commits, annotated tags kept), then `main` and the tags v0.8.0, v0.9.0, v0.9.1 were force-pushed. A search of all history finds none of the strings. The acronym is now the user's own setting (FR-STU-33), not code.
+- **Left as the user chose:** the personal email as commit author (the user is fine with it). The signing certificate's SHA-1 stays (public in every signed app).
+- **Still to know:** resolved on 2026-11-28 by recreating the repository (see the pending item on the repository being private).
+- **Releases and audit (2026-11-28):** the GitHub releases 0.8.0 and 0.9.0 were deleted; only 0.9.1 is offered (the tags stay). Before that, the released apps 0.8.0 and 0.9.1 were checked against the list of removed names: none is in them (the names were only in tests and docs). A sweep of HEAD, the history, the releases' notes and GitHub (no pull requests, no issues, no wiki pages) found no keys, no employer names, no other people's addresses; only placeholders (`my-resource.openai.azure.com`, `bob@x.com`). The compiled app does carry the build machine's source paths (`/Users/<user>/aiwork/tools/untype-studio/...`), as every Swift build does unless `-file-prefix-map` is passed.
+
 
 ### Studio split into its own project, untype studio (2026-11-20)
 - **Request:** make ntakker studio a separate application in its own project folder, with its source and documentation, renamed to untype studio.

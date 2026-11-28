@@ -66,13 +66,17 @@ public enum MeetingMatcher {
     /// A meeting counts as recorded when this share of it was.
     static let coveredShare = 0.8
 
-    /// - Parameter name: the recording's name (stem or display name);
-    ///   its words are looked for in the subjects.
+    /// - Parameters:
+    ///   - name: the recording's name (stem or display name); its words
+    ///     are looked for in the subjects.
+    ///   - ignoring: the user's own words that do not identify a meeting
+    ///     (Settings ▸ Studio ▸ Calendar), on top of `builtInIgnoredWords`.
     public static func match(
-        recordingStart: Date, duration: TimeInterval, name: String? = nil, events: [CalendarEvent]
+        recordingStart: Date, duration: TimeInterval, name: String? = nil,
+        ignoring: Set<String> = [], events: [CalendarEvent]
     ) -> MeetingMatchResult {
         let recEnd = recordingStart.addingTimeInterval(max(duration, 0))
-        let words = name.map(nameWords) ?? []
+        let words = name.map { nameWords($0, ignoring: ignoring) } ?? []
         let matches = events.filter(\.isCandidate).compactMap { e -> MeetingMatch? in
             let overlap = min(recEnd, e.end).timeIntervalSince(max(recordingStart, e.start))
             guard overlap > 0 else { return nil }
@@ -130,20 +134,30 @@ public enum MeetingMatcher {
 
     // MARK: - Name words
 
-    /// Words that do not identify a meeting.
-    static let ignoredWords: Set<String> = [
-        "recording", "record", "meeting", "call", "part", "copy", "clean", "studio", "with", "and", "the",
-        "bank", "prep", "test", "video",
+    /// Words that never identify a meeting: the ones untype and the
+    /// studio put in file names, and English filler. The user adds their
+    /// own in `NTAKKER_CALENDAR_IGNORED_WORDS` (FR-STU-33).
+    public static let builtInIgnoredWords: Set<String> = [
+        "recording", "record", "meeting", "call", "part", "copy", "clean", "studio", "video",
+        "with", "and", "the",
     ]
+
+    /// The words of the `NTAKKER_CALENDAR_IGNORED_WORDS` setting: split at
+    /// commas, spaces and anything else that is not a letter, lowercased
+    /// (as the recording names are). An empty or missing setting is no
+    /// words.
+    public static func ignoredWords(setting: String?) -> Set<String> {
+        Set((setting ?? "").lowercased().split { !$0.isLetter }.map(String.init))
+    }
 
     /// The distinctive words of a recording name: letters only, at least
     /// three of them (short ones are acronyms: qbr, okr), lowercased,
-    /// without generic words and dates.
-    static func nameWords(_ name: String) -> [String] {
+    /// without generic words, the user's `ignoring` words and dates.
+    static func nameWords(_ name: String, ignoring: Set<String> = []) -> [String] {
         name.lowercased()
             .split { !$0.isLetter }
             .map(String.init)
-            .filter { $0.count >= 3 && !ignoredWords.contains($0) }
+            .filter { $0.count >= 3 && !builtInIgnoredWords.contains($0) && !ignoring.contains($0) }
     }
 
     /// Whether any word of the subject shares a stem with one of `words`

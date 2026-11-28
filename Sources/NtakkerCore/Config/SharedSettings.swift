@@ -44,6 +44,9 @@ public enum SharedSettings {
         /// Shell command line printing calendar JSON for `{from}`…`{to}`
         /// (YYYY-MM-DD); the studio maps recordings to meetings with it.
         public static let calendarCommand = "NTAKKER_CALENDAR_COMMAND"
+        /// Comma-separated words of recording names that do not identify a
+        /// meeting (e.g. `acme, bank, prep`); added to the studio's own.
+        public static let calendarIgnoredWords = "NTAKKER_CALENDAR_IGNORED_WORDS"
     }
 
     // MARK: - Reading and writing

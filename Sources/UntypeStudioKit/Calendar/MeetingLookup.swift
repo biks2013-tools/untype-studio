@@ -22,10 +22,12 @@ public enum MeetingLookup {
     /// Longest range of days asked of the calendar command in one run.
     public static let maxRangeDays = 31
 
-    /// Match `recordings` against the calendar `command` prints.
+    /// Match `recordings` against the calendar `command` prints;
+    /// `ignoring` are the user's words that do not identify a meeting.
     public static func match(
         _ recordings: [Recording],
         command: CalendarCommand,
+        ignoring: Set<String> = [],
         calendar: Calendar = .current
     ) async throws -> [RecordingMeeting] {
         let timed = recordings.map { r in
@@ -43,7 +45,7 @@ public enum MeetingLookup {
                 recording: $0.recording, start: $0.start, duration: $0.duration,
                 result: MeetingMatcher.match(
                     recordingStart: $0.start, duration: $0.duration,
-                    name: $0.recording.displayName + " " + $0.recording.stem, events: all
+                    name: $0.recording.displayName + " " + $0.recording.stem, ignoring: ignoring, events: all
                 )
             )
         }

@@ -150,6 +150,18 @@ and opens it. The request carries nothing about the user (User-Agent
 update itself and says so. IMPLEMENTED (unit-tested: versions, release
 parsing, checksums, policy, swap script).
 
+**FR-STU-33** *(2026-11-28, user request.)* — The words of recording
+names that say nothing about which meeting a recording was (a company's
+or team's name, prep, test) are a setting: Settings ▸ Studio ▸
+Calendar ▸ *Words to ignore*, `NTAKKER_CALENDAR_IGNORED_WORDS` in
+`~/.tool-agents/ntakker/.env`, comma-separated, any case. Meeting
+matching (Info ▸ Meeting and `untype-studio match-meetings`) leaves them
+out of the name hint, on top of the words the studio always ignores
+(those untype puts in file names — recording, record, meeting, call,
+part, copy, clean, studio, video — and with, and, the). Unset or empty
+means no words of the user's own. IMPLEMENTED (unit-tested: reading the
+setting, the name words, matching).
+
 **FR-STU-16** — From the library sidebar (context menu, File menu,
 Delete / Cmd-Delete) the user can rename a recording and move one or
 several recordings to the Trash, without Finder. Rename renames the

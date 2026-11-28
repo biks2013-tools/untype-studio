@@ -262,12 +262,14 @@ final class RecordingWorkspace {
         meetingError = nil
         let start = audioStart, length = duration, name = recording.displayName + " " + recording.stem
         let values = SharedSettingsStore.shared.values
+        let ignoring = MeetingMatcher.ignoredWords(setting: values[SharedSettings.Keys.calendarIgnoredWords])
         Task {
             defer { findingMeeting = false }
             do {
                 let command = try CalendarCommand.configured(in: values)
                 let events = try await command.events(from: start, to: start.addingTimeInterval(length))
-                meetingResult = MeetingMatcher.match(recordingStart: start, duration: length, name: name, events: events)
+                meetingResult = MeetingMatcher.match(recordingStart: start, duration: length, name: name,
+                                                    ignoring: ignoring, events: events)
             } catch {
                 meetingResult = nil
                 meetingError = error.localizedDescription

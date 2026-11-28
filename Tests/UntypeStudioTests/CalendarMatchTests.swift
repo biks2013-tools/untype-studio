@@ -85,6 +85,26 @@ struct CalendarMatchTests {
         #expect(MeetingMatcher.subjectMatches("Ops review & QBR", words: ["qbr"]))
     }
 
+    @Test("the user's words to ignore (FR-STU-33) are read from the setting and leave the name hint")
+    func userIgnoredWords() {
+        #expect(MeetingMatcher.ignoredWords(setting: "Acme, bank;prep  test") == ["acme", "bank", "prep", "test"])
+        #expect(MeetingMatcher.ignoredWords(setting: nil).isEmpty)
+        #expect(MeetingMatcher.ignoredWords(setting: " ").isEmpty)
+        #expect(MeetingMatcher.nameWords("acme-northwind-recording-2026-10-02") == ["acme", "northwind"])
+        #expect(MeetingMatcher.nameWords("acme-northwind-recording-2026-10-02", ignoring: ["acme"]) == ["northwind"])
+        // "acme" is in both subjects: ignored, it no longer counts towards either meeting.
+        let events = [
+            event("ACME | Weekly group call", "2026-10-02T15:00:00+03:00", "2026-10-02T16:30:00+03:00"),
+            event("ACME | NORTHWIND", "2026-10-02T15:30:00+03:00", "2026-10-02T16:15:00+03:00"),
+        ]
+        let hinted = MeetingMatcher.match(recordingStart: t("2026-10-02T15:44:00+03:00"), duration: 45 * 60,
+                                          name: "acme-recording-2026-10-02-16-29", events: events)
+        #expect(hinted.matches.allSatisfy { $0.nameMatches })
+        let r = MeetingMatcher.match(recordingStart: t("2026-10-02T15:44:00+03:00"), duration: 45 * 60,
+                                     name: "acme-recording-2026-10-02-16-29", ignoring: ["acme"], events: events)
+        #expect(r.matches.allSatisfy { !$0.nameMatches })
+    }
+
     @Test("a recording left running over back-to-back meetings lists them; a clash counts once")
     func severalMeetings() {
         let events = [

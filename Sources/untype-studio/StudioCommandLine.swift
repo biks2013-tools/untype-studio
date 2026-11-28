@@ -146,6 +146,8 @@ enum StudioCommandLine {
     The calendar comes from NTAKKER_CALENDAR_COMMAND in ~/.tool-agents/ntakker/.env:
     a command line printing calendar JSON, with {from} and {to} replaced by days, e.g.
       /full/path/m365mail calendar export --from {from} --to {to} --no-description
+    Words of recording names that say nothing about the meeting (besides recording,
+    meeting, call, …) go in NTAKKER_CALENDAR_IGNORED_WORDS, comma-separated.
     """
 
     static func fail(_ message: String) {
@@ -196,7 +198,10 @@ enum MatchMeetingsCommand {
             return true
         }
         do {
-            let matched = try await MeetingLookup.match(recordings, command: command, calendar: calendar)
+            let matched = try await MeetingLookup.match(
+                recordings, command: command,
+                ignoring: MeetingMatcher.ignoredWords(setting: env[SharedSettings.Keys.calendarIgnoredWords]),
+                calendar: calendar)
             print(String(decoding: try report(matched, library: root), as: UTF8.self))
             return 0
         } catch {

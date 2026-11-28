@@ -523,6 +523,7 @@
         | `NTAKKER_RECORDINGS_DIR` | The library folder (shared with ntakker) |
         | `NTAKKER_STUDIO_ECHO_STRENGTH` / `_SUPPRESSION` / `_ADAPTATION` | The echo filter |
         | `NTAKKER_CALENDAR_COMMAND` | The calendar command for meeting matching (below); no default — unset means the feature reports "not configured" |
+        | `NTAKKER_CALENDAR_IGNORED_WORDS` | Comma-separated words of recording names that do not identify a meeting (below); unset or empty means none of the user's own |
 
         The resolution chain for these values is the one documented for
         ntakker ([ntakker.md](https://github.com/biks2013-tools/ntakker/blob/master/docs/tools/ntakker.md) -> "Resolution chain"): shell
@@ -620,8 +621,13 @@
         *fit* — overlap ÷ the span both cover together — plus a bonus when
         a word of the recording's name is in the subject
         (`northwind-recording-…` → "ACME | NORTHWIND"; words of 3+
-        letters, stems by the first five letters, generic words such as
-        "recording", "meeting" ignored); ties go to accepted or
+        letters, stems by the first five letters; the words untype puts
+        in file names — recording, record, meeting, call, part, copy,
+        clean, studio, video — and with/and/the are ignored, and so are
+        the user's own in `NTAKKER_CALENDAR_IGNORED_WORDS`, Settings ▸
+        Studio ▸ Calendar ▸ *Words to ignore*, e.g. `acme, bank, prep`:
+        a company's name that is in every subject would otherwise pull a
+        recording to the wrong meeting); ties go to accepted or
         organised meetings. Confidence: **strong** (fit ≥ 0.5, or a name
         match with fit ≥ 0.25, and no close runner-up), **likely** (fit ≥
         0.2 or a name match), **weak** (only touches it — in practice
