@@ -4,10 +4,6 @@
 
 ## Pending items (most critical first)
 
-### Repository private: updates and the Homebrew cask cannot reach the releases (2026-11-28)
-- The studio's updater asks `api.github.com/…/releases/latest` without credentials, and the cask downloads the release zip the same way; both fail (404) while `biks2013-tools/untype-studio` is private. Installed copies keep working; they just see no new versions.
-- 2026-11-28: the old repository (with the rewritten commits still reachable on GitHub) was renamed `untype-studio-archived` and kept private; `biks2013-tools/untype-studio` was created again from the clean `main` and tags only, so it can be made public without them. The release 0.9.1 was published again there with the same files.
-
 ### Video digests from untype in the library — open items (2026-11-27)
 - **Digests made on the iPhone have no audio** until the Mac resumes them, so they are not recordings and do not show in the library.
 - **iCloud files not downloaded** (Optimize Mac Storage) show as `.icloud` placeholders and are skipped until downloaded.
@@ -69,6 +65,7 @@
 - **Unset suppression now means high in the studio; ntakker's own copy of the Settings pane still shows Off** when `NTAKKER_STUDIO_ECHO_SUPPRESSION` is unset. Carry the one-line change (`SharedCorePanes.swift`) to ntakker, or it is lost when the vendored folders are copied again.
 
 ### Split from ntakker — open items (2026-11-20)
+- **Released 2026-11-28 as v0.9.2** (words to ignore when matching meetings, FR-STU-33; notarized, app and DMG Accepted; `scripts/release.sh`, no test failures): GitHub release marked latest, zip downloaded back without credentials and checked (`6062e2a2…`); cask 0.9.2 published through untype's tap folder (tap `e29e20a`; `brew livecheck`, `style` and `audit --online --strict` pass). Packaging now passes `-file-prefix-map` (repository → `.`, home → `~`): the binary no longer holds the build machine's source paths. The first release that installed copies (0.9.1) can update to by themselves.
 - **Released 2026-11-27 as v0.9.1** (self-update, FR-STU-32; notarized, app and DMG Accepted; 90 tests): GitHub release marked latest, zip downloaded back and checked (`52df85e8…`); cask 0.9.1 (tap `fb47bd4`). Installed on the development Mac from the release zip, replacing the ad-hoc redeploy (previous copy kept in the session scratchpad). From now on `scripts/redeploy-untype-studio.sh` installs an ad-hoc copy that cannot update itself and changes the app's signature for macOS permissions (Calendar): use releases on this Mac. The update path itself is first exercised by the next release (0.9.2).
 - **Released 2026-11-27 as v0.9.0** (Developer ID signed, notarized, app and DMG Accepted; `scripts/release.sh`, 84 tests, no failures): GitHub release on `biks2013-tools/untype-studio` marked latest, zip downloaded back and checked (`905d1ff9…`); cask `untype-studio` 0.9.0 published through untype's tap folder (tap `972992b`). Includes FR-STU-23..31; of these only FR-STU-30/31 were looked at by the user.
 - **Released 2026-11-22 as v0.8.0** (Developer ID signed, notarized): GitHub release on `biks2013-tools/untype-studio`, cask `untype-studio` in the tap `biks2013-tools/homebrew-untype`. Signed with the Developer ID identity `2C7D…DF30` (the one `untype.app` uses) and the notarytool profile `untype-notary`. Installing with `brew install --cask` was not tried.
@@ -113,12 +110,16 @@
 
 ## Completed items
 
+### Repository private: updates and the Homebrew cask could not reach the releases (2026-11-28)
+- **Issue:** while `biks2013-tools/untype-studio` was private, the updater (`api.github.com/…/releases/latest`, no credentials) and the cask's download got 404; installed copies saw no new versions.
+- **Fix:** the old repository (rewritten commits still reachable on GitHub) was renamed `untype-studio-archived` and kept private; `biks2013-tools/untype-studio` was created again from the clean `main` and tags only (no force pushes, pull requests or forks in its activity) and made public by the user on 2026-11-28. Checked without credentials: `releases/latest` answers, the zip downloads, and the cask passes livecheck and audit.
+
 ### Private traces removed from the git history (2026-11-27 → 2026-11-28)
 - **Issue:** the public repository held an Azure OpenAI resource host (a code comment), real meeting and client names in tests and comments, a person's first name in a recording name, two calendar subjects in the house style of the employer in `CalendarMatchTests.swift`, and the employer's acronym in the matcher's ignored words — at HEAD and in every older commit and tag.
 - **Fix:** HEAD cleaned in the 0.9.1 commit; the user made the repository private (2026-11-28) and asked for the names to go from the history too. `git filter-repo --replace-text` in a fresh clone (backup bundle kept outside the repo) turned each old string into the made-up one HEAD uses; the rewrite changed nothing else (HEAD differed only in the acronym line and the two subjects; same 12 commits, annotated tags kept), then `main` and the tags v0.8.0, v0.9.0, v0.9.1 were force-pushed. A search of all history finds none of the strings. The acronym is now the user's own setting (FR-STU-33), not code.
 - **Left as the user chose:** the personal email as commit author (the user is fine with it). The signing certificate's SHA-1 stays (public in every signed app).
-- **Still to know:** resolved on 2026-11-28 by recreating the repository (see the pending item on the repository being private).
-- **Releases and audit (2026-11-28):** the GitHub releases 0.8.0 and 0.9.0 were deleted; only 0.9.1 is offered (the tags stay). Before that, the released apps 0.8.0 and 0.9.1 were checked against the list of removed names: none is in them (the names were only in tests and docs). A sweep of HEAD, the history, the releases' notes and GitHub (no pull requests, no issues, no wiki pages) found no keys, no employer names, no other people's addresses; only placeholders (`my-resource.openai.azure.com`, `bob@x.com`). The compiled app does carry the build machine's source paths (`/Users/<user>/aiwork/tools/untype-studio/...`), as every Swift build does unless `-file-prefix-map` is passed.
+- **Still to know:** resolved on 2026-11-28 by recreating the repository (see the completed item on the repository being private).
+- **Releases and audit (2026-11-28):** the GitHub releases 0.8.0 and 0.9.0 were deleted; only 0.9.1 is offered (the tags stay). Before that, the released apps 0.8.0 and 0.9.1 were checked against the list of removed names: none is in them (the names were only in tests and docs). A sweep of HEAD, the history, the releases' notes and GitHub (no pull requests, no issues, no wiki pages) found no keys, no employer names, no other people's addresses; only placeholders (`my-resource.openai.azure.com`, `bob@x.com`). The compiled apps up to 0.9.1 carry the build machine's source paths (`/Users/<user>/aiwork/tools/untype-studio/...`); from 0.9.2 packaging passes `-file-prefix-map` and they are gone.
 
 
 ### Studio split into its own project, untype studio (2026-11-20)
